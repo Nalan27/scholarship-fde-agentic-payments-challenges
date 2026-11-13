@@ -1,22 +1,25 @@
 # Infraestrutura do desafio
 
-Este pacote contém a infraestrutura AWS do desafio, definida com AWS CDK em
-TypeScript. O escopo atual é somente backend; frontend/S3/CloudFront ficam
-fora da stack até nova orientação da coordenação.
+Este pacote define a infraestrutura AWS com CDK em TypeScript. O escopo
+aprovado no momento é somente o backend: não implante frontend, S3 ou
+CloudFront até nova orientação da coordenação. A stack está configurada para
+`us-east-1`.
 
-## Autenticação e API
+## Estado atual
 
-O User Pool do Cognito não permite auto cadastro e envia convites por e-mail.
-O app client é público (sem segredo e sem OAuth) para uso pelo frontend local. A HTTP API
-usa esse User Pool como JWT authorizer padrão; a rota `POST /chat` não chega à
-Lambda sem um token válido. Durante o desenvolvimento local, o CORS aceita
-somente `http://localhost:3000`.
-
-A Lambda temporária da rota está em `lambda/chat.ts`. Ela valida que o `sub` autenticado
-está presente e, até a integração com o agente, retorna explicitamente
-`501 AGENT_NOT_IMPLEMENTED`.
-O log dessa Lambda é apagado após uma semana; o papel da função só pode
-escrever nesse grupo.
+- Cinco tabelas DynamoDB para produtos, usuários, conversas, intenções e
+  transações.
+- User Pool do Cognito sem auto cadastro, com login por e-mail e recuperação
+  de conta por e-mail. A criação de usuários deve ser administrativa.
+- App client público para o frontend local, com autenticação SRP e sem OAuth
+  nem segredo.
+- HTTP API com JWT authorizer Cognito como autorização padrão. CORS permite
+  somente `http://localhost:3000`.
+- A rota `POST /chat` chama uma Lambda temporária. Ela exige o `sub` fornecido
+  pelo authorizer e responde `501 AGENT_NOT_IMPLEMENTED` para usuários
+  autenticados; a integração com o agente ainda não foi feita.
+- Logs da Lambda são retidos por uma semana e o papel da função só pode
+  escrever no grupo de logs dela.
 
 ## Modelo de dados DynamoDB
 
@@ -41,14 +44,18 @@ atualize o estoque e grave a transação atomicamente. O backend deverá usar o
 `sub` validado do Cognito como `userId`; nunca deve aceitar esse valor do modelo
 ou do corpo da requisição.
 
-## Comandos locais
+## Validar localmente
+
+No PowerShell, a partir desta pasta:
 
 ```powershell
+npm ci
 npm run build
 npm test -- --runInBand
 npx cdk synth
 ```
 
-Esses comandos validam e sintetizam a stack localmente; não fazem deploy.
-O `cdk synth` também imprime `UserPoolId`, `UserPoolClientId` e
-`ChatApiEndpoint` como outputs, para configurar o frontend local depois.
+Esses comandos constroem, testam e sintetizam a stack localmente; **não fazem
+deploy**. A síntese inclui `UserPoolId`, `UserPoolClientId` e `ChatApiEndpoint`
+como outputs, para configurar o frontend local quando a integração estiver
+pronta. Não execute `cdk deploy` sem autorização da coordenação.

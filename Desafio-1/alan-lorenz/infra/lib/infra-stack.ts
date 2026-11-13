@@ -7,36 +7,45 @@ export class InfraStack extends cdk.Stack {
     super(scope, id, props);
 
     const prefix = 'AlanLorenz';
+    const billing = {
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      maxReadRequestUnits: 5,
+      maxWriteRequestUnits: 5,
+    };
 
-    // 1. Catálogo de Produtos
-    const productsTable = new dynamodb.Table(this, 'ProductsTable', {
+    new dynamodb.Table(this, 'ProductsTable', {
       tableName: `${prefix}-Produtos`,
       partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      ...billing,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    // 2. Usuários e Limites
-    const usersTable = new dynamodb.Table(this, 'UsersTable', {
+    new dynamodb.Table(this, 'UsersTable', {
       tableName: `${prefix}-Usuarios`,
       partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      ...billing,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    // 3. Intenções de Compra
-    const intentionsTable = new dynamodb.Table(this, 'IntentionsTable', {
+    new dynamodb.Table(this, 'ConversationsTable', {
+      tableName: `${prefix}-Conversas`,
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'messageKey', type: dynamodb.AttributeType.STRING },
+      ...billing,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    new dynamodb.Table(this, 'IntentionsTable', {
       tableName: `${prefix}-Intencoes`,
       partitionKey: { name: 'intentionId', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      ...billing,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    // 4. Transações
-    const transactionsTable = new dynamodb.Table(this, 'TransactionsTable', {
+    new dynamodb.Table(this, 'TransactionsTable', {
       tableName: `${prefix}-Transacoes`,
-      partitionKey: { name: 'transactionId', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      partitionKey: { name: 'intentionId', type: dynamodb.AttributeType.STRING },
+      ...billing,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
   }

@@ -20,30 +20,36 @@ A validação local do frontend (26 testes e build estático), dos testes CDK
 nem chamada ao modelo; a primeira chamada ao Haiku pode registrar a inscrição
 na conta.
 
-## Validar localmente
+## Validar e publicar
 
-Gere primeiro o site estático; depois valide a stack:
+Requisitos: Node.js/npm, Python 3.13 e `uv`. O frontend incluído em
+[`frontend/`](./frontend/) é a cópia do `chat-web` adaptada ao Cognito e à API
+`POST /chat`. Para validar tudo sem publicar recursos, execute na pasta
+`infra/`:
 
 ```powershell
-Set-Location ..\..\..\..\chatbot-pagamentos\chat-web
 npm ci
-npm run check
-npm run build
-
-Set-Location ..\..\desafio-1\Desafio-1\alan-lorenz\infra
-npm ci
-npm run build
-npm test -- --runInBand
+npm run test -- --runInBand
 npm run test:agent
 npm run synth
 ```
 
-O primeiro empacotamento do agente usa Python 3.13, `uv` e dependências Linux
-ARM64 para CodeZip; pode baixar pacotes. O build do frontend gera `out/`, que
-a síntese da stack precisa encontrar. Se estiver em outro local, defina
-`FRONTEND_BUILD_PATH` com seu caminho absoluto. A síntese só gera a
-representação local da stack. Esses comandos não invocam o Claude e não criam
-recursos na AWS.
+`npm run synth` instala as dependências do frontend, executa seus checks e
+build estático, empacota o agente para CodeZip (Linux ARM64) e sintetiza a
+stack. Isso não cria recursos AWS nem invoca o Claude. O build é gerado em
+`frontend/out/`; para usar outro diretório, defina `FRONTEND_BUILD_PATH`.
+
+Após revisar a síntese e obter autorização expressa para publicar, o deploy
+integral pode ser iniciado da pasta `infra/` com:
+
+```powershell
+npm run deploy
+```
+
+Esse comando constrói o frontend, empacota o agente e executa `cdk deploy`,
+que cria a infraestrutura e publica os arquivos no S3/CloudFront. Não o
+execute sem autorização; não execute também o seed do catálogo nem uma chamada
+ao Haiku sem autorização.
 
 As ferramentas portadas podem ser validadas localmente, sem AWS:
 

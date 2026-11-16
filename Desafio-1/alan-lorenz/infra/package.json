@@ -4,11 +4,13 @@
   "scripts": {
     "build": "tsc",
     "build:agent": "node ./scripts/package-agent.mjs",
+    "build:frontend": "npm --prefix ../frontend ci && npm --prefix ../frontend run check && npm --prefix ../frontend run build",
     "pretest": "npm run build:agent",
     "watch": "tsc -w",
     "test": "jest",
     "test:agent": "uv run --project agent --locked python -m unittest discover -s agent/tests",
-    "synth": "npm run build:agent && cdk synth",
+    "synth": "npm run build:frontend && npm run build:agent && cdk synth",
+    "deploy": "npm run build:frontend && npm run build:agent && cdk deploy",
     "cdk": "cdk"
   },
   "devDependencies": {

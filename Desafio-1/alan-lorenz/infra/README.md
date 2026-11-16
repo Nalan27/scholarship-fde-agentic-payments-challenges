@@ -38,11 +38,11 @@ deploy: não publique recursos até receber autorização expressa.
 - As chamadas das ferramentas, inclusive recusas, são registradas na tabela
   de conversas, sem adicionar uma sexta tabela.
 
-O prompt de negócio original está em
-`C:\Users\aland\chatbot-pagamentos\chat-web\src\lib\chat\payload.ts`; sua
-cópia server-side no runtime não confia em um prompt `system` fornecido pelo
-cliente. Os invariantes de limite, validade, propriedade, saldo, estoque e
-pagamento único continuam verificados pelas tools, não pelo modelo.
+O prompt de negócio está em
+`../frontend/src/lib/chat/payload.ts`; sua cópia server-side no runtime não
+confia em um prompt `system` fornecido pelo cliente. Os invariantes de limite,
+validade, propriedade, saldo, estoque e pagamento único continuam verificados
+pelas tools, não pelo modelo.
 
 ## Modelo de dados DynamoDB
 
@@ -91,38 +91,35 @@ streaming de resposta não é suportado por HTTP API. O endpoint permanece
 protegido por Cognito. Não se usa o cabeçalho AgentCore `Runtime-User-Id`; o
 identificador de sessão é calculado no backend a partir de `sub` e conversa.
 
-## Validar localmente
+## Validar e publicar
 
-Requisitos: Node.js/npm, Python 3.13 e `uv`. Gere primeiro o build estático do
-chatbot existente:
-
-```powershell
-Set-Location ..\..\..\..\chatbot-pagamentos\chat-web
-npm ci
-npm run check
-npm run build
-```
-
-O build gera `out/`, que a stack inclui no deploy. Volte para esta pasta e
-valide a infraestrutura:
+Requisitos: Node.js/npm, Python 3.13 e `uv`. O frontend faz parte do projeto
+em `../frontend/`; `npm run synth` instala suas dependências, executa os checks
+e gera a exportação estática em `../frontend/out/`. Depois, empacota o agente
+com dependências Linux ARM64 para CodeZip e sintetiza o CDK:
 
 ```powershell
-Set-Location ..\..\desafio-1\Desafio-1\alan-lorenz\infra
 npm ci
-npm run build
-npm test -- --runInBand
+npm run test -- --runInBand
 npm run test:agent
 npm run synth
 ```
 
-Se o build não estiver no caminho padrão do repositório irmão
-`chatbot-pagamentos\chat-web\out`, defina `FRONTEND_BUILD_PATH` para o caminho
-absoluto do diretório `out` antes de executar `npm run synth`. O `pretest`
-empacota o agente com dependências Linux ARM64 para CodeZip; o `synth` também
-executa esse empacotamento antes de sintetizar o CDK. A primeira execução pode
-baixar dependências Python. Esses comandos não invocam o Claude, não acessam
-dados AWS e não fazem deploy. Para validar as ferramentas TypeScript, execute
-`npm run check` na pasta `../tools/`.
+A síntese não invoca o Claude, não acessa dados AWS nem faz deploy. Para
+validar as ferramentas TypeScript, execute `npm run check` na pasta
+`../tools/`. Se quiser sintetizar ou publicar um build estático gerado em
+outro diretório, defina `FRONTEND_BUILD_PATH`.
+
+Depois de revisar a síntese e obter autorização expressa, o deploy completo é:
+
+```powershell
+npm run deploy
+```
+
+Esse comando constrói e valida o frontend, empacota o agente e executa
+`cdk deploy`; o CDK publica o frontend no bucket S3 privado e invalida o
+CloudFront. Não execute sem autorização. Também não execute o seed do catálogo
+ou uma chamada ao Haiku sem autorização expressa.
 
 Depois de um deploy autorizado, o catálogo pode ser inserido sem sobrescrever
 estoque existente. Na pasta `../tools/`, configure `PRODUCTS_TABLE` com o nome

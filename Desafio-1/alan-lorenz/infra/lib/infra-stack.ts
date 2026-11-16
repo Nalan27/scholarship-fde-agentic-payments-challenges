@@ -296,10 +296,10 @@ export class InfraStack extends cdk.Stack {
     const frontendBuildPath =
       this.node.tryGetContext('frontendBuildPath') ??
       process.env.FRONTEND_BUILD_PATH ??
-      join(projectRoot, '..', '..', '..', '..', 'chatbot-pagamentos', 'chat-web', 'out');
+      join(projectRoot, '..', 'frontend', 'out');
     if (!existsSync(frontendBuildPath)) {
       throw new Error(
-        `Static frontend build not found at "${frontendBuildPath}". Build chat-web with "npm run build" and set FRONTEND_BUILD_PATH before CDK synthesis.`,
+        `Static frontend build not found at "${frontendBuildPath}". Run "npm run build:frontend" from the infra directory or set FRONTEND_BUILD_PATH.`,
       );
     }
 

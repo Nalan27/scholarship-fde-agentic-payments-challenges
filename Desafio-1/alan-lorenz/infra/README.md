@@ -110,16 +110,19 @@ validar as ferramentas TypeScript, execute `npm run check` na pasta
 `../tools/`. Se quiser sintetizar ou publicar um build estático gerado em
 outro diretório, defina `FRONTEND_BUILD_PATH`.
 
-Depois de revisar a síntese e obter autorização expressa, o deploy completo é:
+Depois de revisar a síntese, configurar credenciais AWS com permissão para
+criar os recursos e obter autorização expressa, o deploy completo é:
 
 ```powershell
 npm run deploy
 ```
 
-Esse comando constrói e valida o frontend, empacota o agente e executa
-`cdk deploy`; o CDK publica o frontend no bucket S3 privado e invalida o
-CloudFront. Não execute sem autorização. Também não execute o seed do catálogo
-ou uma chamada ao Haiku sem autorização expressa.
+Esse comando constrói e valida o frontend, empacota o agente, prepara o
+ambiente de bootstrap do CDK em `us-east-1` se necessário e executa `cdk
+deploy`; o CDK publica o frontend no bucket S3 privado e invalida o CloudFront.
+Bootstrap e deploy alteram a conta AWS: não execute sem autorização. Também
+não execute o seed do catálogo ou uma chamada ao Haiku sem autorização
+expressa.
 
 Depois de um deploy autorizado, o catálogo pode ser inserido sem sobrescrever
 estoque existente. Na pasta `../tools/`, configure `PRODUCTS_TABLE` com o nome

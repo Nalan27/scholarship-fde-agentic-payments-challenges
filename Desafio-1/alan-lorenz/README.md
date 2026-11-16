@@ -40,16 +40,18 @@ stack. Isso não cria recursos AWS nem invoca o Claude. O build é gerado em
 `frontend/out/`; para usar outro diretório, defina `FRONTEND_BUILD_PATH`.
 
 Após revisar a síntese e obter autorização expressa para publicar, o deploy
-integral pode ser iniciado da pasta `infra/` com:
+integral pode ser iniciado da pasta `infra/`, após configurar credenciais AWS
+com permissão para criar os recursos da stack, com:
 
 ```powershell
 npm run deploy
 ```
 
 Esse comando constrói o frontend, empacota o agente e executa `cdk deploy`,
-que cria a infraestrutura e publica os arquivos no S3/CloudFront. Não o
-execute sem autorização; não execute também o seed do catálogo nem uma chamada
-ao Haiku sem autorização.
+além de preparar o ambiente de bootstrap do CDK em `us-east-1` se necessário.
+O deploy cria a infraestrutura e publica os arquivos no S3/CloudFront.
+Bootstrap e deploy alteram a conta AWS: não os execute sem autorização; não
+execute também o seed do catálogo nem uma chamada ao Haiku sem autorização.
 
 As ferramentas portadas podem ser validadas localmente, sem AWS:
 

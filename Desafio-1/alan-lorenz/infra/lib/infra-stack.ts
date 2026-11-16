@@ -1,7 +1,6 @@
+import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as bedrockagentcore from 'aws-cdk-lib/aws-bedrockagentcore';
 import * as cdk from 'aws-cdk-lib';
-import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
-import * as authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
-import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -10,6 +9,10 @@ import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import { join } from 'node:path';
+
+const MODEL_ID = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
+const FOUNDATION_MODEL_ID = MODEL_ID.replace(/^us\./, '');
+const LOCAL_FRONTEND_ORIGIN = 'http://localhost:3000';
 
 export class InfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -78,36 +81,13 @@ export class InfraStack extends cdk.Stack {
       preventUserExistenceErrors: true,
     });
 
-    const authorizer = new authorizers.HttpUserPoolAuthorizer(
+    const authorizer = new apigateway.CognitoUserPoolsAuthorizer(
+      this,
       'CognitoAuthorizer',
-      userPool,
-      { userPoolClients: [userPoolClient] },
+      { cognitoUserPools: [userPool] },
     );
 
     const projectRoot = join(__dirname, '..');
-    const chatLogGroup = new logs.LogGroup(this, 'ChatHandlerLogGroup', {
-      logGroupName: `/aws/lambda/${prefix}-ChatHandler`,
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-    });
-    const chatHandlerRole = new iam.Role(this, 'ChatHandlerRole', {
-      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
-    });
-    chatLogGroup.grantWrite(chatHandlerRole);
-
-    const chatHandler = new nodejs.NodejsFunction(this, 'ChatHandler', {
-      entry: join(projectRoot, 'lambda', 'chat.ts'),
-      projectRoot,
-      depsLockFilePath: join(projectRoot, 'package-lock.json'),
-      handler: 'handler',
-      runtime: lambda.Runtime.NODEJS_22_X,
-      functionName: `${prefix}-ChatHandler`,
-      memorySize: 256,
-      timeout: cdk.Duration.seconds(30),
-      logGroup: chatLogGroup,
-      role: chatHandlerRole,
-    });
-
     const toolsRoot = join(projectRoot, '..', 'tools');
     const toolEnvironment = {
       PRODUCTS_TABLE: productsTable.tableName,
@@ -228,24 +208,126 @@ export class InfraStack extends cdk.Stack {
       'dynamodb:PutItem',
     );
 
-    const api = new apigatewayv2.HttpApi(this, 'ChatApi', {
-      apiName: `${prefix}-ChatApi`,
-      defaultAuthorizer: authorizer,
-      corsPreflight: {
-        allowOrigins: ['http://localhost:3000'],
-        allowMethods: [
-          apigatewayv2.CorsHttpMethod.POST,
-          apigatewayv2.CorsHttpMethod.OPTIONS,
-        ],
-        allowHeaders: ['authorization', 'content-type', 'x-conversa-id'],
+    const agentRuntime = new bedrockagentcore.Runtime(this, 'ChatAgentRuntime', {
+      runtimeName: `${prefix}ChatAgent`,
+      agentRuntimeArtifact: bedrockagentcore.AgentRuntimeArtifact.fromCodeAsset({
+        path: join(projectRoot, 'agent', 'dist'),
+        runtime: bedrockagentcore.AgentCoreRuntime.PYTHON_3_13,
+        entrypoint: ['main.py'],
+      }),
+      environmentVariables: {
+        BEDROCK_MODEL_ID: MODEL_ID,
+        LIST_CATALOG_FUNCTION: catalogTool.fn.functionName,
+        REGISTER_INTENTION_FUNCTION: intentionTool.fn.functionName,
+        REALIZAR_COMPRA_FUNCTION: purchaseTool.fn.functionName,
+      },
+      lifecycleConfiguration: {
+        idleRuntimeSessionTimeout: cdk.Duration.seconds(300),
+        maxLifetime: cdk.Duration.minutes(30),
       },
     });
 
-    api.addRoutes({
-      path: '/chat',
-      methods: [apigatewayv2.HttpMethod.POST],
-      integration: new integrations.HttpLambdaIntegration('ChatIntegration', chatHandler),
+    agentRuntime.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['lambda:InvokeFunction'],
+        resources: [
+          catalogTool.fn.functionArn,
+          intentionTool.fn.functionArn,
+          purchaseTool.fn.functionArn,
+        ],
+      }),
+    );
+
+    const modelProfileArn = this.formatArn({
+      service: 'bedrock',
+      resource: 'inference-profile',
+      resourceName: MODEL_ID,
     });
+    agentRuntime.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+        resources: [modelProfileArn],
+      }),
+    );
+    agentRuntime.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+        resources: [
+          `arn:${this.partition}:bedrock:us-*::foundation-model/${FOUNDATION_MODEL_ID}`,
+        ],
+        conditions: {
+          StringLike: { 'bedrock:InferenceProfileArn': modelProfileArn },
+        },
+      }),
+    );
+
+    const chatLogGroup = new logs.LogGroup(this, 'ChatHandlerLogGroup', {
+      logGroupName: `/aws/lambda/${prefix}-ChatHandler`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    const chatHandlerRole = new iam.Role(this, 'ChatHandlerRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+    });
+    chatLogGroup.grantWrite(chatHandlerRole);
+    agentRuntime.grantInvokeRuntime(chatHandlerRole);
+
+    const chatHandler = new nodejs.NodejsFunction(this, 'ChatHandler', {
+      entry: join(projectRoot, 'lambda', 'chat.ts'),
+      projectRoot,
+      depsLockFilePath: join(projectRoot, 'package-lock.json'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      functionName: `${prefix}-ChatHandler`,
+      memorySize: 256,
+      timeout: cdk.Duration.minutes(5),
+      logGroup: chatLogGroup,
+      role: chatHandlerRole,
+      environment: {
+        AGENT_RUNTIME_ARN: agentRuntime.agentRuntimeArn,
+      },
+    });
+
+    const api = new apigateway.RestApi(this, 'ChatApi', {
+      restApiName: `${prefix}-ChatApi`,
+      endpointConfiguration: {
+        types: [apigateway.EndpointType.REGIONAL],
+      },
+      defaultCorsPreflightOptions: {
+        allowOrigins: [LOCAL_FRONTEND_ORIGIN],
+        allowMethods: ['POST', 'OPTIONS'],
+        allowHeaders: ['Authorization', 'Content-Type', 'X-Conversa-Id'],
+      },
+    });
+
+    api.addGatewayResponse('UnauthorizedCors', {
+      type: apigateway.ResponseType.UNAUTHORIZED,
+      responseHeaders: {
+        'Access-Control-Allow-Origin': `'${LOCAL_FRONTEND_ORIGIN}'`,
+        'Access-Control-Allow-Headers': "'Authorization,Content-Type,X-Conversa-Id'",
+        'Access-Control-Allow-Methods': "'POST,OPTIONS'",
+      },
+    });
+    api.addGatewayResponse('AccessDeniedCors', {
+      type: apigateway.ResponseType.ACCESS_DENIED,
+      responseHeaders: {
+        'Access-Control-Allow-Origin': `'${LOCAL_FRONTEND_ORIGIN}'`,
+        'Access-Control-Allow-Headers': "'Authorization,Content-Type,X-Conversa-Id'",
+        'Access-Control-Allow-Methods': "'POST,OPTIONS'",
+      },
+    });
+
+    api.root.addResource('chat').addMethod(
+      'POST',
+      new apigateway.LambdaIntegration(chatHandler, {
+        proxy: true,
+        responseTransferMode: apigateway.ResponseTransferMode.STREAM,
+      }),
+      {
+        authorizationType: apigateway.AuthorizationType.COGNITO,
+        authorizer,
+      },
+    );
 
     new cdk.CfnOutput(this, 'UserPoolId', {
       value: userPool.userPoolId,
@@ -254,7 +336,10 @@ export class InfraStack extends cdk.Stack {
       value: userPoolClient.userPoolClientId,
     });
     new cdk.CfnOutput(this, 'ChatApiEndpoint', {
-      value: api.apiEndpoint,
+      value: api.urlForPath('/chat'),
+    });
+    new cdk.CfnOutput(this, 'AgentRuntimeArn', {
+      value: agentRuntime.agentRuntimeArn,
     });
   }
 }

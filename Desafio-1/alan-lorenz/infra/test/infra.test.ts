@@ -54,20 +54,89 @@ describe('InfraStack DynamoDB tables', () => {
     });
   });
 
-  test('protects the chat route with Cognito JWT and allows only the local frontend origin', () => {
-    template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
-      ProtocolType: 'HTTP',
-      CorsConfiguration: {
-        AllowOrigins: ['http://localhost:3000'],
-        AllowMethods: ['POST', 'OPTIONS'],
-        AllowHeaders: ['authorization', 'content-type', 'x-conversa-id'],
+  test('protects the streaming chat route with Cognito and local-origin CORS', () => {
+    template.resourceCountIs('AWS::ApiGateway::RestApi', 1);
+    template.hasResourceProperties('AWS::ApiGateway::Method', {
+      HttpMethod: 'POST',
+      AuthorizationType: 'COGNITO_USER_POOLS',
+      Integration: {
+        Type: 'AWS_PROXY',
+        IntegrationHttpMethod: 'POST',
+        ResponseTransferMode: 'STREAM',
       },
     });
-
-    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
-      RouteKey: 'POST /chat',
-      AuthorizationType: 'JWT',
+    template.hasResourceProperties('AWS::ApiGateway::GatewayResponse', {
+      ResponseType: 'UNAUTHORIZED',
+      ResponseParameters: {
+        'gatewayresponse.header.Access-Control-Allow-Origin':
+          "'http://localhost:3000'",
+      },
     });
+  });
+
+  test('deploys the Python 3.13 AgentCore CodeZip with the existing Haiku model', () => {
+    template.hasResourceProperties('AWS::BedrockAgentCore::Runtime', {
+      AgentRuntimeName: 'AlanLorenzChatAgent',
+      AgentRuntimeArtifact: {
+        CodeConfiguration: {
+          Code: {
+            S3: {
+              Bucket: Match.anyValue(),
+              Prefix: Match.anyValue(),
+            },
+          },
+          EntryPoint: ['main.py'],
+          Runtime: 'PYTHON_3_13',
+        },
+      },
+      EnvironmentVariables: {
+        BEDROCK_MODEL_ID: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+        LIST_CATALOG_FUNCTION: Match.anyValue(),
+        REGISTER_INTENTION_FUNCTION: Match.anyValue(),
+        REALIZAR_COMPRA_FUNCTION: Match.anyValue(),
+      },
+    });
+  });
+
+  test('limits runtime model access and invokes only the three payment tools', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyName: Match.stringLikeRegexp('ChatAgentRuntimeExecutionRole'),
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+            Resource: Match.anyValue(),
+          }),
+          Match.objectLike({
+            Action: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+            Condition: {
+              StringLike: {
+                'bedrock:InferenceProfileArn': Match.anyValue(),
+              },
+            },
+            Resource: Match.anyValue(),
+          }),
+        ]),
+      },
+    });
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyName: Match.stringLikeRegexp('ChatAgentRuntimeExecutionRole'),
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: 'lambda:InvokeFunction',
+            Resource: Match.anyValue(),
+          }),
+        ]),
+      },
+    });
+    const synthesized = JSON.stringify(template.toJSON().Resources);
+    expect(synthesized).toContain(
+      'inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0',
+    );
+    expect(synthesized).toContain(
+      'foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0',
+    );
   });
 
   test('retains the chat logs for one week and scopes the role to that log group', () => {
@@ -78,11 +147,11 @@ describe('InfraStack DynamoDB tables', () => {
 
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: {
-        Statement: [
-          {
+        Statement: Match.arrayWith([
+          Match.objectLike({
             Action: ['logs:CreateLogStream', 'logs:PutLogEvents'],
-          },
-        ],
+          }),
+        ]),
       },
     });
   });
@@ -108,6 +177,28 @@ describe('InfraStack DynamoDB tables', () => {
         },
       });
     }
+  });
+
+  test('configures the chat Lambda to invoke AgentCore with scoped IAM permission', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'AlanLorenz-ChatHandler',
+      Runtime: 'nodejs22.x',
+      Environment: {
+        Variables: {
+          AGENT_RUNTIME_ARN: Match.anyValue(),
+        },
+      },
+    });
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: 'bedrock-agentcore:InvokeAgentRuntime',
+            Resource: Match.anyValue(),
+          }),
+        ]),
+      },
+    });
   });
 
   test('grants DynamoDB tool access through resource-scoped policies', () => {

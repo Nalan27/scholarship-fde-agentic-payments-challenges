@@ -28,7 +28,8 @@
     "isolatedModules": true,
     "types": [
       "jest",
-      "node"
+      "node",
+      "aws-lambda"
     ]
   },
   "exclude": [

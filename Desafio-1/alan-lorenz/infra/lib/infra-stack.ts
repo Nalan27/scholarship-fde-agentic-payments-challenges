@@ -22,21 +22,21 @@ export class InfraStack extends cdk.Stack {
       maxWriteRequestUnits: 5,
     };
 
-    new dynamodb.Table(this, 'ProductsTable', {
+    const productsTable = new dynamodb.Table(this, 'ProductsTable', {
       tableName: `${prefix}-Produtos`,
       partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
       ...billing,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    new dynamodb.Table(this, 'UsersTable', {
+    const usersTable = new dynamodb.Table(this, 'UsersTable', {
       tableName: `${prefix}-Usuarios`,
       partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
       ...billing,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    new dynamodb.Table(this, 'ConversationsTable', {
+    const conversationsTable = new dynamodb.Table(this, 'ConversationsTable', {
       tableName: `${prefix}-Conversas`,
       partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'messageKey', type: dynamodb.AttributeType.STRING },
@@ -44,14 +44,14 @@ export class InfraStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    new dynamodb.Table(this, 'IntentionsTable', {
+    const intentionsTable = new dynamodb.Table(this, 'IntentionsTable', {
       tableName: `${prefix}-Intencoes`,
       partitionKey: { name: 'intentionId', type: dynamodb.AttributeType.STRING },
       ...billing,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    new dynamodb.Table(this, 'TransactionsTable', {
+    const transactionsTable = new dynamodb.Table(this, 'TransactionsTable', {
       tableName: `${prefix}-Transacoes`,
       partitionKey: { name: 'intentionId', type: dynamodb.AttributeType.STRING },
       ...billing,
@@ -107,6 +107,126 @@ export class InfraStack extends cdk.Stack {
       logGroup: chatLogGroup,
       role: chatHandlerRole,
     });
+
+    const toolsRoot = join(projectRoot, '..', 'tools');
+    const toolEnvironment = {
+      PRODUCTS_TABLE: productsTable.tableName,
+      USERS_TABLE: usersTable.tableName,
+      CONVERSATIONS_TABLE: conversationsTable.tableName,
+      INTENTIONS_TABLE: intentionsTable.tableName,
+      TRANSACTIONS_TABLE: transactionsTable.tableName,
+    };
+
+    const createToolLambda = (
+      id: string,
+      functionName: string,
+      entry: string,
+    ) => {
+      const logGroup = new logs.LogGroup(this, `${id}LogGroup`, {
+        logGroupName: `/aws/lambda/${functionName}`,
+        retention: logs.RetentionDays.ONE_WEEK,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      });
+      const role = new iam.Role(this, `${id}Role`, {
+        assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      });
+      logGroup.grantWrite(role);
+
+      const fn = new nodejs.NodejsFunction(this, id, {
+        entry: join(toolsRoot, 'src', 'handlers', entry),
+        projectRoot: toolsRoot,
+        depsLockFilePath: join(toolsRoot, 'package-lock.json'),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_22_X,
+        functionName,
+        memorySize: 256,
+        timeout: cdk.Duration.seconds(10),
+        logGroup,
+        role,
+        environment: toolEnvironment,
+      });
+      return { fn, role };
+    };
+
+    const addTablePermissions = (
+      role: iam.Role,
+      table: dynamodb.Table,
+      ...actions: string[]
+    ) => {
+      role.addToPolicy(
+        new iam.PolicyStatement({
+          actions,
+          resources: [table.tableArn],
+        }),
+      );
+    };
+
+    const catalogTool = createToolLambda(
+      'ListCatalogTool',
+      `${prefix}-ListCatalog`,
+      'listar-catalogo.ts',
+    );
+    addTablePermissions(catalogTool.role, productsTable, 'dynamodb:Scan');
+    addTablePermissions(
+      catalogTool.role,
+      conversationsTable,
+      'dynamodb:PutItem',
+    );
+
+    const intentionTool = createToolLambda(
+      'RegisterIntentionTool',
+      `${prefix}-RegisterIntention`,
+      'registrar-intencao.ts',
+    );
+    addTablePermissions(intentionTool.role, productsTable, 'dynamodb:GetItem');
+    addTablePermissions(
+      intentionTool.role,
+      usersTable,
+      'dynamodb:GetItem',
+      'dynamodb:PutItem',
+    );
+    addTablePermissions(intentionTool.role, intentionsTable, 'dynamodb:PutItem');
+    addTablePermissions(
+      intentionTool.role,
+      conversationsTable,
+      'dynamodb:PutItem',
+    );
+
+    const purchaseTool = createToolLambda(
+      'RealizarCompraTool',
+      `${prefix}-RealizarCompra`,
+      'realizar-compra.ts',
+    );
+    addTablePermissions(
+      purchaseTool.role,
+      intentionsTable,
+      'dynamodb:GetItem',
+      'dynamodb:UpdateItem',
+      'dynamodb:TransactWriteItems',
+    );
+    addTablePermissions(
+      purchaseTool.role,
+      usersTable,
+      'dynamodb:GetItem',
+      'dynamodb:TransactWriteItems',
+    );
+    addTablePermissions(
+      purchaseTool.role,
+      productsTable,
+      'dynamodb:GetItem',
+      'dynamodb:UpdateItem',
+      'dynamodb:TransactWriteItems',
+    );
+    addTablePermissions(
+      purchaseTool.role,
+      transactionsTable,
+      'dynamodb:TransactWriteItems',
+    );
+    addTablePermissions(
+      purchaseTool.role,
+      conversationsTable,
+      'dynamodb:PutItem',
+    );
 
     const api = new apigatewayv2.HttpApi(this, 'ChatApi', {
       apiName: `${prefix}-ChatApi`,

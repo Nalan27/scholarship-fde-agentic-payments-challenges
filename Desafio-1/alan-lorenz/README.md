@@ -8,10 +8,15 @@ ou frontend até nova autorização. A região de destino configurada é
 `us-east-1`.
 
 A pasta [`infra/`](./infra/) contém a stack CDK com cinco tabelas DynamoDB,
-Cognito e uma HTTP API protegida por JWT. O endpoint `POST /chat` está
-protegido, mas sua Lambda ainda é provisória: após autenticar, responde
-`501 AGENT_NOT_IMPLEMENTED`. O agente, as ferramentas de pagamento e a
-integração completa entre frontend e backend ainda precisam ser concluídos.
+Cognito, uma HTTP API protegida por JWT e três Lambdas que adaptam as
+ferramentas de pagamento do chatbot anterior. A lógica de catálogo, intenção de
+cinco minutos, limite, estoque, pagamento único e auditoria está sendo portada
+para DynamoDB.
+
+O endpoint `POST /chat` ainda é provisório: a Lambda responde
+`501 AGENT_NOT_IMPLEMENTED`. Falta integrar o agente Strands no Bedrock
+AgentCore com o modelo Claude Haiku 4.5 e ligar as ferramentas ao agente. O
+frontend permanece local; ainda não houve deploy.
 
 ## Validar a infraestrutura
 
@@ -30,5 +35,13 @@ AWS. Não execute `cdk deploy` até a coordenação confirmar que o deploy do
 backend está autorizado. O limite de crédito da conta também deve ser
 considerado antes de criar recursos.
 
+As ferramentas portadas podem ser validadas localmente, sem AWS:
+
+```powershell
+Set-Location ..\tools
+npm ci
+npm run check
+```
+
 Consulte [`infra/README.md`](./infra/README.md) para detalhes do modelo de
-dados, autenticação, API e configurações de custo.
+dados, autenticação, API, ferramentas e configurações de custo.

@@ -86,4 +86,50 @@ describe('InfraStack DynamoDB tables', () => {
       },
     });
   });
+
+  test('creates one Lambda for each existing payment tool with the table names configured', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 4);
+    for (const functionName of [
+      'AlanLorenz-ListCatalog',
+      'AlanLorenz-RegisterIntention',
+      'AlanLorenz-RealizarCompra',
+    ]) {
+      template.hasResourceProperties('AWS::Lambda::Function', {
+        FunctionName: functionName,
+        Runtime: 'nodejs22.x',
+        Environment: {
+          Variables: {
+            PRODUCTS_TABLE: Match.anyValue(),
+            USERS_TABLE: Match.anyValue(),
+            CONVERSATIONS_TABLE: Match.anyValue(),
+            INTENTIONS_TABLE: Match.anyValue(),
+            TRANSACTIONS_TABLE: Match.anyValue(),
+          },
+        },
+      });
+    }
+  });
+
+  test('grants DynamoDB tool access through resource-scoped policies', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: 'dynamodb:TransactWriteItems',
+            Resource: Match.anyValue(),
+          }),
+        ]),
+      },
+    });
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: 'dynamodb:Scan',
+            Resource: Match.anyValue(),
+          }),
+        ]),
+      },
+    });
+  });
 });

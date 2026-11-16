@@ -70,13 +70,31 @@ describe('InfraStack DynamoDB tables', () => {
         ResponseTransferMode: 'STREAM',
       },
     });
-    template.hasResourceProperties('AWS::ApiGateway::GatewayResponse', {
-      ResponseType: 'UNAUTHORIZED',
-      ResponseParameters: {
-        'gatewayresponse.header.Access-Control-Allow-Origin':
-          "'*'",
-      },
-    });
+    for (const responseType of ['UNAUTHORIZED', 'ACCESS_DENIED']) {
+      template.hasResourceProperties('AWS::ApiGateway::GatewayResponse', {
+        ResponseType: responseType,
+        ResponseParameters: {
+          'gatewayresponse.header.Access-Control-Allow-Origin': Match.anyValue(),
+          'gatewayresponse.header.Access-Control-Allow-Headers':
+            "'Authorization,Content-Type,X-Conversa-Id'",
+          'gatewayresponse.header.Access-Control-Allow-Methods':
+            "'POST,OPTIONS'",
+          'gatewayresponse.header.Vary': "'Origin'",
+        },
+      });
+    }
+
+    const gatewayErrorResponses = Object.values(
+      template.findResources('AWS::ApiGateway::GatewayResponse'),
+    );
+    for (const response of gatewayErrorResponses) {
+      const origin =
+        response.Properties.ResponseParameters[
+          'gatewayresponse.header.Access-Control-Allow-Origin'
+        ];
+      expect(origin).not.toBe("'*'");
+      expect(JSON.stringify(origin)).toContain('FrontendDistribution');
+    }
     const synthesized = JSON.stringify(template.toJSON().Resources);
     expect(synthesized).toContain('https://');
     expect(synthesized).toContain('FrontendDistribution');

@@ -15,7 +15,9 @@ deploy: não publique recursos até receber autorização expressa.
   segredo. O cadastro é administrativo; usuários são provisionados pela
   coordenação.
 - REST API com authorizer Cognito e streaming de resposta habilitado na rota
-  `POST /chat`. O CORS permite `http://localhost:3000` e o domínio CloudFront.
+  `POST /chat`. O CORS da rota permite `http://localhost:3000` e o domínio
+  CloudFront; erros de autenticação gerados pelo API Gateway permitem somente
+  o domínio CloudFront.
 - O handler da API fica em `../api/chat.ts`; o código Strands fica em
   `../agent/`. Esta pasta contém apenas a infraestrutura CDK.
 - O pacote `../api/` contém as dependências do handler; `npm run build:api`

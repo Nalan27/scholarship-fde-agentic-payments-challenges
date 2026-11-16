@@ -354,17 +354,19 @@ function handler(event) {
     api.addGatewayResponse('UnauthorizedCors', {
       type: apigateway.ResponseType.UNAUTHORIZED,
       responseHeaders: {
-        'Access-Control-Allow-Origin': "'*'",
+        'Access-Control-Allow-Origin': `'https://${frontendDistribution.distributionDomainName}'`,
         'Access-Control-Allow-Headers': "'Authorization,Content-Type,X-Conversa-Id'",
         'Access-Control-Allow-Methods': "'POST,OPTIONS'",
+        Vary: "'Origin'",
       },
     });
     api.addGatewayResponse('AccessDeniedCors', {
       type: apigateway.ResponseType.ACCESS_DENIED,
       responseHeaders: {
-        'Access-Control-Allow-Origin': "'*'",
+        'Access-Control-Allow-Origin': `'https://${frontendDistribution.distributionDomainName}'`,
         'Access-Control-Allow-Headers': "'Authorization,Content-Type,X-Conversa-Id'",
         'Access-Control-Allow-Methods': "'POST,OPTIONS'",
+        Vary: "'Origin'",
       },
     });
 

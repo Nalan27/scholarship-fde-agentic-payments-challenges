@@ -4,7 +4,7 @@ import {
   forwardAgentEvent,
   parseRequest,
   readAgentEvents,
-} from '../lambda/chat';
+} from '../../api/chat';
 
 const conversaId = 'c3ad9981-cd4c-4a01-9a7a-f7248173ad19';
 

@@ -3,7 +3,8 @@
 Este pacote porta para TypeScript as três ferramentas do chatbot da Fase 1:
 `listar_catalogo`, `registrar_intencao` e `realizar_compra`. Preserva o formato
 de resposta e as regras existentes, substituindo SQLite por DynamoDB. As
-funções ainda precisam ser conectadas ao agente Strands no Bedrock AgentCore.
+funções são empacotadas como Lambdas pela stack e chamadas pelo agente Strands
+no Bedrock AgentCore.
 
 ## Regras preservadas
 
@@ -19,8 +20,9 @@ funções ainda precisam ser conectadas ao agente Strands no Bedrock AgentCore.
   conversas. Falha de auditoria é registrada em stderr e não desfaz uma compra
   já confirmada.
 - O contexto autenticado (`userId` e `conversaId`) é separado dos argumentos
-  fornecidos pelo modelo. O runtime Strands deve injetá-lo; nunca aceite
-  `userId` dos argumentos da ferramenta.
+  fornecidos pelo modelo. O runtime Strands recebe o `sub` validado pelo
+  Cognito da Lambda de chat e o injeta nas chamadas; nunca aceite `userId` dos
+  argumentos da ferramenta.
 
 O catálogo inicial está em `src/catalog.ts` e corresponde aos cinco produtos
 do chatbot anterior. Não são migrados dados de usuários, conversas ou compras
@@ -39,4 +41,12 @@ Os testes usam um armazenamento em memória e mocks do SDK; não acessam a AWS.
 
 Após deploy autorizado da stack, configure `PRODUCTS_TABLE` como
 `AlanLorenz-Produtos` e execute `npm run seed:catalog` para inserir o catálogo.
-O comando escreve no DynamoDB e não faz parte da validação local.
+No PowerShell, na pasta `tools/`:
+
+```powershell
+$env:PRODUCTS_TABLE = 'AlanLorenz-Produtos'
+npm run seed:catalog
+```
+
+O comando usa as credenciais AWS ativas, grava no DynamoDB sem sobrescrever
+produtos existentes e não faz parte da validação local.

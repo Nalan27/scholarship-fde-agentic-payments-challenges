@@ -8,9 +8,10 @@ O usuário ainda precisa autorizar qualquer deploy.
 
 A pasta [`infra/`](./infra/) contém a stack CDK com cinco tabelas DynamoDB,
 Cognito, uma REST API protegida por Cognito com resposta em streaming, uma
-Lambda de chat, um runtime Strands no Bedrock AgentCore usando o Claude Haiku
-4.5, três Lambdas TypeScript para as ferramentas e hospedagem estática privada
-via S3 + CloudFront. O frontend mantém a interface e o histórico do chatbot,
+Lambda de chat implementada em [`api/`](./api/), um runtime Strands no Bedrock
+AgentCore implementado em [`agent/`](./agent/) usando o Claude Haiku 4.5, três
+Lambdas TypeScript para as ferramentas em [`tools/`](./tools/) e hospedagem
+estática privada via S3 + CloudFront. O frontend mantém a interface e o histórico do chatbot,
 autentica com Cognito e envia o ID token à API. O agente reutiliza o prompt de
 negócio original, mantém o histórico e envia o `sub` autenticado às tools fora
 dos argumentos visíveis ao modelo.

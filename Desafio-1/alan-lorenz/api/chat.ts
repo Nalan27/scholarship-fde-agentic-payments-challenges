@@ -2,6 +2,7 @@ import {
   BedrockAgentCoreClient,
   InvokeAgentRuntimeCommand,
 } from '@aws-sdk/client-bedrock-agentcore';
+import type { StreamifyHandler } from 'aws-lambda';
 import { createHash } from 'node:crypto';
 import type { Writable } from 'node:stream';
 
@@ -247,7 +248,7 @@ export function forwardAgentEvent(stream: Writable, value: unknown) {
   return false;
 }
 
-export const handler = awslambda.streamifyResponse(
+export const handler: StreamifyHandler<ChatApiEvent> = awslambda.streamifyResponse(
   async (event: ChatApiEvent, responseStream: Writable) => {
     const parsed = parseRequest(event);
     if (!('request' in parsed)) {

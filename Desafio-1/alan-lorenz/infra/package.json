@@ -2,15 +2,16 @@
   "name": "infra",
   "version": "0.1.0",
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:api && tsc",
+    "build:api": "npm --prefix ../api ci",
     "build:agent": "node ./scripts/package-agent.mjs",
     "build:frontend": "npm --prefix ../frontend ci && npm --prefix ../frontend run check && npm --prefix ../frontend run build",
-    "pretest": "npm run build:agent",
+    "pretest": "npm run build:api && npm run build:agent",
     "watch": "tsc -w",
     "test": "jest",
-    "test:agent": "uv run --project agent --locked python -m unittest discover -s agent/tests",
-    "synth": "npm run build:frontend && npm run build:agent && cdk synth",
-    "deploy": "npm run build:frontend && npm run build:agent && cdk bootstrap && cdk deploy",
+    "test:agent": "uv run --project agent --directory .. --locked python -m unittest discover -s agent/tests",
+    "synth": "npm run build:api && npm run build:frontend && npm run build:agent && cdk synth",
+    "deploy": "npm run build:api && npm run build:frontend && npm run build:agent && cdk bootstrap && cdk deploy",
     "cdk": "cdk"
   },
   "devDependencies": {
@@ -25,7 +26,6 @@
     "typescript": "~7.0.2"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-agentcore": "^3.1169.0",
     "aws-cdk-lib": "^2.275.0",
     "constructs": "^10.5.0"
   }

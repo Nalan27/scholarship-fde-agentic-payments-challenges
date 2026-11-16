@@ -16,6 +16,10 @@ deploy: não publique recursos até receber autorização expressa.
   coordenação.
 - REST API com authorizer Cognito e streaming de resposta habilitado na rota
   `POST /chat`. O CORS permite `http://localhost:3000` e o domínio CloudFront.
+- O handler da API fica em `../api/chat.ts`; o código Strands fica em
+  `../agent/`. Esta pasta contém apenas a infraestrutura CDK.
+- O pacote `../api/` contém as dependências do handler; `npm run build:api`
+  instala as dependências antes dos testes, síntese ou deploy.
 - Bucket S3 privado, acessível pelo CloudFront com Origin Access Control, e
   publicação do frontend estático com `config.json` gerado pela stack.
 - A Lambda de chat obtém o `sub` exclusivamente do authorizer Cognito, invoca

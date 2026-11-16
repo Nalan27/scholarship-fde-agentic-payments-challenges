@@ -216,7 +216,7 @@ export class InfraStack extends cdk.Stack {
     const agentRuntime = new bedrockagentcore.Runtime(this, 'ChatAgentRuntime', {
       runtimeName: `${prefix}ChatAgent`,
       agentRuntimeArtifact: bedrockagentcore.AgentRuntimeArtifact.fromCodeAsset({
-        path: join(projectRoot, 'agent', 'dist'),
+        path: join(projectRoot, '..', 'agent', 'dist'),
         runtime: bedrockagentcore.AgentCoreRuntime.PYTHON_3_13,
         entrypoint: ['main.py'],
       }),
@@ -266,6 +266,7 @@ export class InfraStack extends cdk.Stack {
       }),
     );
 
+    const apiRoot = join(projectRoot, '..', 'api');
     const chatLogGroup = new logs.LogGroup(this, 'ChatHandlerLogGroup', {
       logGroupName: `/aws/lambda/${prefix}-ChatHandler`,
       retention: logs.RetentionDays.ONE_WEEK,
@@ -278,9 +279,9 @@ export class InfraStack extends cdk.Stack {
     agentRuntime.grantInvokeRuntime(chatHandlerRole);
 
     const chatHandler = new nodejs.NodejsFunction(this, 'ChatHandler', {
-      entry: join(projectRoot, 'lambda', 'chat.ts'),
-      projectRoot,
-      depsLockFilePath: join(projectRoot, 'package-lock.json'),
+      entry: join(apiRoot, 'chat.ts'),
+      projectRoot: apiRoot,
+      depsLockFilePath: join(apiRoot, 'package-lock.json'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_22_X,
       functionName: `${prefix}-ChatHandler`,

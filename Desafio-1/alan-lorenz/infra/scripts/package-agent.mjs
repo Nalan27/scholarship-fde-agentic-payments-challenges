@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const agentDir = join(scriptDir, '..', 'agent');
+const agentDir = join(scriptDir, '..', '..', 'agent');
 const buildDir = join(agentDir, 'dist');
 const sourceFile = join(agentDir, 'main.py');
 const lockFile = join(agentDir, 'uv.lock');

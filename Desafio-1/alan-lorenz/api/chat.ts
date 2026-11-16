@@ -12,7 +12,6 @@ import {
   type ToolEventRecord,
 } from './conversation-store.ts';
 
-const LOCAL_FRONTEND_ORIGIN = 'http://localhost:3000';
 const UUID_V4 =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const agentCore = new BedrockAgentCoreClient({});
@@ -57,9 +56,8 @@ function responseHeaders(event: ChatApiEvent): Record<string, string> {
   };
   const origin = requestHeaders(event).origin;
   if (
-    origin === LOCAL_FRONTEND_ORIGIN ||
-    (typeof process.env.FRONTEND_ORIGIN === 'string' &&
-      origin === process.env.FRONTEND_ORIGIN)
+    typeof process.env.FRONTEND_ORIGIN === 'string' &&
+    origin === process.env.FRONTEND_ORIGIN
   ) {
     headers['Access-Control-Allow-Origin'] = origin;
     headers.Vary = 'Origin';

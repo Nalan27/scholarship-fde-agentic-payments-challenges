@@ -1,9 +1,10 @@
 # Infraestrutura do desafio
 
 Este pacote define a infraestrutura AWS com CDK em TypeScript para o backend
-e a hospedagem do frontend estático em S3 + CloudFront. A stack está
-configurada para `us-east-1`. O código e a síntese da stack não autorizam o
-deploy: não publique recursos até receber autorização expressa.
+e a autenticação Cognito. O frontend roda localmente em
+`http://localhost:3000`; a stack não cria recursos de hospedagem para ele. A
+stack está configurada para `us-east-1`. O código e a síntese da stack não
+autorizam o deploy: não publique recursos até receber autorização expressa.
 
 ## Arquitetura e estado
 
@@ -15,15 +16,15 @@ deploy: não publique recursos até receber autorização expressa.
   segredo. O cadastro é administrativo; usuários são provisionados pela
   coordenação.
 - REST API com authorizer Cognito e streaming de resposta habilitado na rota
-  `POST /chat`. O CORS da rota permite `http://localhost:3000` e o domínio
-  CloudFront; erros de autenticação gerados pelo API Gateway permitem somente
-  o domínio CloudFront.
+  `POST /chat`. O CORS da rota e das respostas `401`/`403` permite somente
+  `http://localhost:3000`.
 - O handler da API fica em `../api/chat.ts`; o código Strands fica em
   `../agent/`. Esta pasta contém apenas a infraestrutura CDK.
 - O pacote `../api/` contém as dependências do handler; `npm run build:api`
   instala as dependências antes dos testes, síntese ou deploy.
-- Bucket S3 privado, acessível pelo CloudFront com Origin Access Control, e
-  publicação do frontend estático com `config.json` gerado pela stack.
+- O frontend local lê `UserPoolId`, `UserPoolClientId` e `ChatApiEndpoint` de
+  `../frontend/.env.local`; consulte o
+  [`README do frontend`](../frontend/README.md) para configurá-lo.
 - A Lambda de chat obtém o `sub` exclusivamente do authorizer Cognito, invoca
   o AgentCore com um identificador de sessão derivado do usuário e da conversa
   e converte os eventos SSE do runtime em NDJSON para o cliente. Ela grava a
@@ -49,11 +50,8 @@ deploy: não publique recursos até receber autorização expressa.
   acessar essa tabela; os eventos de ferramenta retornam pelo AgentCore e são
   gravados pelo handler do chat.
 - Os grants globais `Resource: "*"` de X-Ray/métricas do construct AgentCore
-  foram removidos (tracing e métricas customizadas não são usados). A
-  invalidação CloudFront usa somente o ARN da distribuição; o provedor de
-  deploy tem role e log group próprios. O bucket não usa autoexclusão automática,
-  portanto deve ser esvaziado antes de `cdk destroy`. O teste CDK verifica que
-  nenhuma policy tenha `Resource: "*"`.
+  foram removidos (tracing e métricas customizadas não são usados). O teste
+  CDK verifica que nenhuma policy tenha `Resource: "*"`.
 
 O prompt de negócio está em
 `../frontend/src/lib/chat/payload.ts`; sua cópia server-side no runtime não
@@ -116,10 +114,7 @@ identificador de sessão é calculado no backend a partir de `sub` e conversa.
 
 ## Validar e publicar
 
-Requisitos: Node.js/npm, Python 3.13 e `uv`. O frontend faz parte do projeto
-em `../frontend/`; `npm run synth` instala suas dependências, executa os checks
-e gera a exportação estática em `../frontend/out/`. Depois, empacota o agente
-com dependências Linux ARM64 para CodeZip e sintetiza o CDK:
+Requisitos: Node.js/npm, Python 3.13 e `uv`. A partir desta pasta:
 
 ```powershell
 npm ci
@@ -129,9 +124,9 @@ npm run synth
 ```
 
 A síntese não invoca o Claude, não acessa dados AWS nem faz deploy. Para
-validar as ferramentas TypeScript, execute `npm run check` na pasta
-`../tools/`. Se quiser sintetizar ou publicar um build estático gerado em
-outro diretório, defina `FRONTEND_BUILD_PATH`.
+validar o frontend localmente, execute `npm ci` e `npm run check` em
+`../frontend/`; para validar as ferramentas TypeScript, execute `npm run check`
+em `../tools/`.
 
 Depois de revisar a síntese, configurar credenciais AWS com permissão para
 criar os recursos e obter autorização expressa, o deploy completo é:
@@ -140,12 +135,11 @@ criar os recursos e obter autorização expressa, o deploy completo é:
 npm run deploy
 ```
 
-Esse comando constrói e valida o frontend, empacota o agente, prepara o
-ambiente de bootstrap do CDK em `us-east-1` se necessário e executa `cdk
-deploy`; o CDK publica o frontend no bucket S3 privado e invalida o CloudFront.
-Bootstrap e deploy alteram a conta AWS: não execute sem autorização. Também
-não execute o seed do catálogo ou uma chamada ao Haiku sem autorização
-expressa.
+Esse comando constrói o backend e o agente, prepara o ambiente de bootstrap
+do CDK em `us-east-1` se necessário e executa `cdk deploy`. Ele implanta o
+backend e o Cognito, mas não constrói nem publica o frontend. Bootstrap e
+deploy alteram a conta AWS: não execute sem autorização. Também não execute o
+seed do catálogo ou uma chamada ao Haiku sem autorização expressa.
 
 Depois de um deploy autorizado, o catálogo pode ser inserido sem sobrescrever
 estoque existente. Na pasta `../tools/`, configure `PRODUCTS_TABLE` com o nome
@@ -155,4 +149,4 @@ DynamoDB; não o execute como parte dos testes locais.
 Não execute `cdk deploy`, o seed de catálogo ou uma chamada ao Haiku sem
 autorização expressa. A primeira chamada ao modelo pode registrar a inscrição
 na conta, e o limite de crédito informado é US$ 20. O build e a síntese locais
-não publicam os recursos nem o frontend.
+não publicam recursos AWS.

@@ -1,40 +1,81 @@
-# Frontend do chatbot
+# Frontend local do chatbot
 
-Frontend estático do chatbot da Fase 1, usando Cognito para autenticação e
-AWS Amplify para gerenciar a sessão. O navegador envia o ID token como
-`Authorization: Bearer <JWT>` à API protegida. A interface mantém o fluxo de
-conversa e o histórico de chamadas/resultados das ferramentas.
+O frontend Next.js é executado localmente em `http://localhost:3000`. Ele usa
+o Amazon Cognito e a API de chat provisionados pela stack AWS; não publica nem
+hospeda arquivos do frontend na AWS. A autenticação usa AWS Amplify no
+navegador, e o ID token Cognito é enviado como
+`Authorization: Bearer <JWT>` para o endpoint protegido.
 
-## Desenvolvimento local
+## Pré-requisitos
 
-Requer Node.js/npm. Copie `.env.example` para `.env.local` e preencha as
-variáveis com os outputs da stack CDK:
+- Node.js 22.x e npm.
+- A stack backend implantada em `us-east-1`, com acesso ao User Pool e à API.
+- AWS CLI configurada para consultar os outputs da stack, ou os valores
+  `UserPoolId`, `UserPoolClientId` e `ChatApiEndpoint` fornecidos pelo operador.
+- Um usuário criado por administrador no Cognito. O auto cadastro está
+  desativado; no primeiro login, use a senha temporária do convite e defina
+  uma nova senha.
 
-- `NEXT_PUBLIC_USER_POOL_ID`: output `UserPoolId`
-- `NEXT_PUBLIC_USER_POOL_CLIENT_ID`: output `UserPoolClientId`
-- `NEXT_PUBLIC_CHAT_API_URL`: output `ChatApiEndpoint`
+## Configuração inicial
+
+Abra esta pasta (`Desafio-1/alan-lorenz/frontend`) no PowerShell e instale as
+dependências:
 
 ```powershell
 npm ci
+Copy-Item .env.example .env.local
+```
+
+Para consultar os outputs da stack:
+
+```powershell
+aws cloudformation describe-stacks `
+  --stack-name AlanLorenzInfraStack `
+  --region us-east-1 `
+  --query "Stacks[0].Outputs[].[OutputKey,OutputValue]" `
+  --output table
+```
+
+Edite `.env.local` e preencha os valores correspondentes:
+
+| Variável | Output CDK |
+|---|---|
+| `NEXT_PUBLIC_USER_POOL_ID` | `UserPoolId` |
+| `NEXT_PUBLIC_USER_POOL_CLIENT_ID` | `UserPoolClientId` |
+| `NEXT_PUBLIC_CHAT_API_URL` | `ChatApiEndpoint` |
+
+Esses IDs e a URL identificam recursos públicos; não coloque senhas, tokens ou
+chaves AWS nessas variáveis. `.env.local` é ignorado pelo Git. Reinicie o
+servidor de desenvolvimento depois de alterar o arquivo.
+
+## Executar
+
+```powershell
+npm run check
 npm run dev
 ```
 
-O frontend usa `http://localhost:3000`; a API aceita esse origin para CORS.
-As contas não podem ser criadas pela interface: a coordenação precisa
-provisionar o usuário no Cognito e enviar o convite. No primeiro login, a
-interface permite definir uma nova senha para a senha temporária.
+Abra `http://localhost:3000` no navegador e entre com a conta Cognito
+convidada. Use exatamente `localhost` (não `127.0.0.1`): a API permite CORS
+somente para essa origem local. A criação de contas não é feita pela interface.
 
-## Build estático para S3 + CloudFront
+O histórico é mantido na sessão atual do navegador e enviado completo a cada
+turno. Embora as mensagens também sejam gravadas no DynamoDB, ainda não há uma
+rota para listar conversas anteriores; recarregar a página não restaura a
+conversa.
 
-O `next.config.ts` usa `output: 'export'`. O `npm run build` gera o site em
-`out/`. Durante o deploy da stack CDK, `BucketDeployment` publica esse
-diretório no bucket privado e cria `config.json` com os IDs e URL da API
-resolvidos pela própria stack. Assim, os valores da AWS não precisam ser
-conhecidos para criar o build estático e nenhum segredo é empacotado.
+## Diagnóstico rápido
 
-Não é necessário definir `FRONTEND_BUILD_PATH` para o fluxo normal: a stack
-usa `frontend/out/` dentro deste projeto. Os comandos `npm run synth` e
-`npm run deploy` da pasta `infra/` instalam dependências, executam os checks e
-geram o build automaticamente. Consulte [`../infra/README.md`](../infra/README.md)
-para validação e deploy. O build e a síntese não publicam recursos nem chamam
-o modelo Bedrock.
+- **Configuração incompleta:** confirme que as três variáveis estão preenchidas
+  em `.env.local` e reinicie `npm run dev`.
+- **Erro `401`:** entre novamente com o usuário Cognito; tokens expirados ou
+  inválidos são recusados pelo API Gateway.
+- **Falha de rede/CORS:** confirme que abriu `http://localhost:3000` e que
+  `NEXT_PUBLIC_CHAT_API_URL` é o output `ChatApiEndpoint` da stack na região
+  `us-east-1`.
+- **Sem acesso Cognito:** peça a um administrador para criar a conta e enviar
+  um convite; auto cadastro está desativado.
+
+Para implantar ou validar o backend e a autenticação na AWS, consulte o
+[`README da infraestrutura`](../infra/README.md). O deploy da stack não
+constrói nem publica este frontend.

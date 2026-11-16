@@ -2,18 +2,63 @@
 
 ## Status da entrega
 
-A infraestrutura e a aplicação estão implementadas para deploy em `us-east-1`.
-Builds, testes locais e síntese CDK foram executados; **a stack ainda não foi
-publicada na AWS**. Portanto, login real, compras integradas com Bedrock e as
-evidências exigidas pelo desafio ainda precisam ser validados após um deploy
+A infraestrutura AWS e o frontend local estão implementados para execução em
+`us-east-1`. Builds, testes locais e síntese CDK foram executados; **a stack
+ainda não foi publicada na AWS**. Portanto, login real, compras integradas com
+Bedrock e as evidências exigidas ainda precisam ser validados após um deploy
 autorizado.
+
+## Confronto com o PDF: estado e pendências
+
+### Implementado em código
+
+- Frontend Next.js executado em `http://localhost:3000`, configurado por
+  `.env.local` para usar Cognito e a API implantados na AWS. A stack não cria
+  hospedagem S3/CloudFront para o frontend.
+- Cognito sem auto cadastro, com convite administrativo; a API Gateway valida
+  o token e a Lambda obtém o usuário do `sub`.
+- CORS da API limitado à origem local `http://localhost:3000`.
+- `POST /chat` transmite a resposta; o histórico completo do turno é enviado ao
+  agente Strands no AgentCore Runtime, usando o Claude Haiku do Bedrock.
+- As três ferramentas rodam em Lambdas. Usuários, conversas, intenções e
+  transações usam DynamoDB; compra e limite são atualizados com condições para
+  evitar duplicidade.
+- A stack CDK cria os recursos de backend e autenticação. O frontend tem
+  instruções de execução em [`frontend/README.md`](./frontend/README.md).
+- A validação local de build, testes e síntese passou.
+
+### Pendências antes da entrega
+
+1. **Revalidar o menor privilégio:** não há `Resource: "*"` global, mas ainda
+   existem curingas dentro de ARNs delimitados, incluindo o padrão regional do
+   modelo Bedrock. O PDF pede roles sem permissões curinga; confirme se cada
+   padrão pode ser substituído por ARNs exatos antes do deploy.
+2. **Preparar a conta AWS:** configurar um alerta no AWS Budgets antes do
+   primeiro deploy e confirmar no console o acesso ao modelo Bedrock em
+   `us-east-1`. Nenhum dos dois foi confirmado.
+3. **Resolver a divergência de estrutura:** este repositório e o README da raiz
+   pedem `Desafio-1/<nome>/`, enquanto o PDF cita `fellows/<nome>/`. A pasta
+   atual segue o README da raiz; confirme com a coordenação qual instrução vale
+   antes de abrir o PR.
+4. **Fazer o deploy autorizado em `us-east-1`**, inserir o catálogo inicial e
+   criar por convite os usuários de teste e o usuário do instrutor.
+5. **Validar na AWS e anexar as seis evidências** listadas abaixo. O PR ainda
+   não foi aberto; revise também o histórico de commits antes de criá-lo e
+   mantenha a aplicação disponível até a correção.
+
+### Limite atual do histórico de conversas
+
+As mensagens são gravadas no DynamoDB e o frontend envia o histórico completo
+em cada turno, mas não existe endpoint para buscar conversas já salvas e
+restaurá-las após recarregar a página. O PDF cita `GET /conversas` como exemplo,
+não como rota obrigatória; implemente recuperação se a entrega precisar
+retomar conversas anteriores.
 
 ## Arquitetura implementada
 
 ```mermaid
 flowchart TD
-  Browser[Navegador] -->|HTTPS, ID token Cognito| CF[CloudFront]
-  CF -->|OAC| S3[(S3 privado: frontend estático)]
+  Browser[Frontend local<br/>localhost:3000] -->|Autenticação| Cognito[Amazon Cognito]
   Browser -->|POST /chat, Bearer JWT| APIGW[API Gateway REST<br/>Cognito authorizer]
   APIGW --> Chat[Lambda do chat]
   Chat -->|InvokeAgentRuntime| Agent[AgentCore Runtime<br/>Strands + Claude Haiku 4.5]
@@ -25,11 +70,10 @@ flowchart TD
   Tools --> Transactions[(DynamoDB: transações)]
 ```
 
-O bucket do frontend bloqueia acesso público e só é servido por CloudFront via
-Origin Access Control. O endpoint de chat exige autenticação Cognito. O `userId`
-é sempre o `sub` validado no token, nunca o valor enviado pelo cliente ou pelo
-modelo. O frontend é uma exportação estática Next.js; a API transmite respostas
-em streaming.
+O frontend é executado localmente; Cognito, API, agente, ferramentas e dados
+ficam na AWS. O endpoint de chat exige autenticação Cognito. O `userId` é sempre
+o `sub` validado no token, nunca o valor enviado pelo cliente ou pelo modelo. A
+API transmite respostas em streaming.
 
 ### Modelo
 
@@ -73,13 +117,10 @@ limitadas aos ARNs das tabelas indicadas; nenhuma role de aplicação recebe
 
 As permissões globais `Resource: "*"` geradas pelo CDK para X-Ray/métricas do
 AgentCore foram removidas; tracing e publicação dessas métricas não são usados
-pela aplicação. A invalidação do CloudFront está limitada ao ARN da distribuição.
-O deploy do frontend usa role própria e grupo de logs limitado; o provedor de
-autoexclusão foi removido para não depender de `AWSLambdaBasicExecutionRole`.
-Os padrões `*` que restam aparecem somente dentro de ARNs delimitados por
-serviço/conta/região (por exemplo, logs do runtime e destinos do perfil de
-inferência), não como recurso global. Um teste CDK falha se voltar a surgir
-`Resource: "*"`.
+pela aplicação. Não há role nem recursos para publicar o frontend. Os padrões
+`*` que restam aparecem somente dentro de ARNs delimitados por serviço/conta/
+região (por exemplo, logs do runtime e destinos do perfil de inferência), não
+como recurso global. Um teste CDK falha se voltar a surgir `Resource: "*"`.
 
 O role de deploy usado por quem executa CDK/bootstrap é separado das roles em
 runtime; use credenciais AWS autorizadas e não armazene chaves no repositório.
@@ -105,8 +146,10 @@ npm run deploy
 ```
 
 O comando prepara o bootstrap CDK em `us-east-1` se necessário e publica a
-stack `AlanLorenzInfraStack`. Anote os outputs `FrontendUrl`, `UserPoolId` e
-`ChatApiEndpoint`. Para validar as ferramentas localmente, na pasta `tools/`:
+stack `AlanLorenzInfraStack`, sem publicar o frontend. Anote os outputs
+`UserPoolId`, `UserPoolClientId` e `ChatApiEndpoint`; use-os para configurar e
+executar o frontend conforme [`frontend/README.md`](./frontend/README.md). Para
+validar as ferramentas localmente, na pasta `tools/`:
 
 ```powershell
 npm ci
@@ -162,12 +205,9 @@ conforme o enunciado.
 
 Depois da correção/avaliação e com autorização para remover, na pasta `infra/`:
 
-A stack define remoção das tabelas, User Pool, distribuição e bucket. Como o
-bucket não é esvaziado automaticamente, remova seus objetos antes de destruir
-a stack, substituindo `<FrontendBucketName>` pelo output correspondente:
+A stack define a remoção das tabelas e do User Pool:
 
 ```powershell
-aws s3 rm "s3://<FrontendBucketName>" --recursive --region us-east-1
 npm run cdk -- destroy AlanLorenzInfraStack
 ```
 
@@ -178,7 +218,7 @@ compartilhado e não é removido por esse comando.
 
 ## Pastas
 
-- [`frontend/`](./frontend/) — interface estática e autenticação Cognito.
+- [`frontend/`](./frontend/) — interface local e autenticação Cognito.
 - [`api/`](./api/) — Lambda de chat e persistência de conversas.
 - [`agent/`](./agent/) — agente Strands executado no AgentCore.
 - [`tools/`](./tools/) — ferramentas de catálogo, intenção e compra.

@@ -14,23 +14,11 @@ export const AUTH_MESSAGE_KEY = 'auth_message'
 let configPromise: Promise<FrontendConfig> | undefined
 
 async function loadConfig(): Promise<FrontendConfig> {
-  const environmentConfig = {
+  return parseFrontendConfig({
     userPoolId: process.env.NEXT_PUBLIC_USER_POOL_ID,
     userPoolClientId: process.env.NEXT_PUBLIC_USER_POOL_CLIENT_ID,
     chatApiUrl: process.env.NEXT_PUBLIC_CHAT_API_URL,
-  }
-  if (
-    process.env.NODE_ENV !== 'production' &&
-    Object.values(environmentConfig).some((value) => value?.trim())
-  ) {
-    return parseFrontendConfig(environmentConfig)
-  }
-
-  const response = await fetch('/config.json', { cache: 'no-store' })
-  if (!response.ok) {
-    throw new Error('Não foi possível carregar a configuração da aplicação.')
-  }
-  return parseFrontendConfig(await response.json())
+  })
 }
 
 export function configureCognito(): Promise<FrontendConfig> {

@@ -1,14 +1,9 @@
 import * as cdk from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { join } from 'node:path';
 import { InfraStack } from '../lib/infra-stack';
 
 describe('InfraStack DynamoDB tables', () => {
-  const app = new cdk.App({
-    context: {
-      frontendBuildPath: join(__dirname, 'fixtures', 'frontend'),
-    },
-  });
+  const app = new cdk.App();
   const template = Template.fromStack(new InfraStack(app, 'TestInfraStack'));
 
   test('creates the five backend tables with on-demand billing caps', () => {
@@ -59,8 +54,16 @@ describe('InfraStack DynamoDB tables', () => {
     });
   });
 
-  test('protects the streaming chat route with Cognito and local/CloudFront CORS', () => {
+  test('protects the streaming chat route with Cognito and localhost-only CORS', () => {
     template.resourceCountIs('AWS::ApiGateway::RestApi', 1);
+    const preflightMethods = Object.values(
+      template.findResources('AWS::ApiGateway::Method'),
+    ).filter((method) => method.Properties.HttpMethod === 'OPTIONS');
+    expect(preflightMethods.length).toBeGreaterThan(0);
+    for (const method of preflightMethods) {
+      expect(JSON.stringify(method)).toContain("'http://localhost:3000'");
+    }
+
     template.hasResourceProperties('AWS::ApiGateway::Method', {
       HttpMethod: 'POST',
       AuthorizationType: 'COGNITO_USER_POOLS',
@@ -74,7 +77,8 @@ describe('InfraStack DynamoDB tables', () => {
       template.hasResourceProperties('AWS::ApiGateway::GatewayResponse', {
         ResponseType: responseType,
         ResponseParameters: {
-          'gatewayresponse.header.Access-Control-Allow-Origin': Match.anyValue(),
+          'gatewayresponse.header.Access-Control-Allow-Origin':
+            "'http://localhost:3000'",
           'gatewayresponse.header.Access-Control-Allow-Headers':
             "'Authorization,Content-Type,X-Conversa-Id'",
           'gatewayresponse.header.Access-Control-Allow-Methods':
@@ -92,60 +96,14 @@ describe('InfraStack DynamoDB tables', () => {
         response.Properties.ResponseParameters[
           'gatewayresponse.header.Access-Control-Allow-Origin'
         ];
-      expect(origin).not.toBe("'*'");
-      expect(JSON.stringify(origin)).toContain('FrontendDistribution');
+      expect(origin).toBe("'http://localhost:3000'");
     }
-    const synthesized = JSON.stringify(template.toJSON().Resources);
-    expect(synthesized).toContain('https://');
-    expect(synthesized).toContain('FrontendDistribution');
   });
 
-  test('hosts the static frontend privately behind CloudFront and deploys runtime config', () => {
-    template.hasResourceProperties('AWS::S3::Bucket', {
-      PublicAccessBlockConfiguration: {
-        BlockPublicAcls: true,
-        BlockPublicPolicy: true,
-        IgnorePublicAcls: true,
-        RestrictPublicBuckets: true,
-      },
-      BucketEncryption: {
-        ServerSideEncryptionConfiguration: [
-          { ServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } },
-        ],
-      },
-    });
-    template.hasResourceProperties('AWS::CloudFront::Distribution', {
-      DistributionConfig: {
-        DefaultRootObject: 'index.html',
-        PriceClass: 'PriceClass_100',
-        DefaultCacheBehavior: {
-          ViewerProtocolPolicy: 'redirect-to-https',
-          FunctionAssociations: [
-            Match.objectLike({ EventType: 'viewer-request' }),
-          ],
-        },
-      },
-    });
-    template.hasResourceProperties('Custom::CDKBucketDeployment', {
-      DistributionPaths: ['/*'],
-      Prune: true,
-      SourceMarkers: Match.arrayWith([
-        Match.objectLike({
-          '<<marker:0xbaba:0>>': {
-            Ref: Match.stringLikeRegexp('UserPool'),
-          },
-          '<<marker:0xbaba:1>>': {
-            Ref: Match.stringLikeRegexp('UserPoolWebClient'),
-          },
-          '<<marker:0xbaba:2>>': {
-            Ref: Match.stringLikeRegexp('ChatApi'),
-          },
-        }),
-      ]),
-    });
-    template.hasOutput('FrontendUrl', {
-      Value: Match.anyValue(),
-    });
+  test('does not provision S3 or CloudFront for the local frontend', () => {
+    template.resourceCountIs('AWS::S3::Bucket', 0);
+    template.resourceCountIs('AWS::CloudFront::Distribution', 0);
+    template.resourceCountIs('Custom::CDKBucketDeployment', 0);
   });
 
   test('deploys the Python 3.13 AgentCore CodeZip with the existing Haiku model', () => {
@@ -231,7 +189,7 @@ describe('InfraStack DynamoDB tables', () => {
   });
 
   test('creates the chat and three payment tool Lambdas with table names configured', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 5);
+    template.resourceCountIs('AWS::Lambda::Function', 4);
     for (const functionName of [
       'AlanLorenz-ListCatalog',
       'AlanLorenz-RegisterIntention',
@@ -260,7 +218,7 @@ describe('InfraStack DynamoDB tables', () => {
         Variables: {
           AGENT_RUNTIME_ARN: Match.anyValue(),
           CONVERSATIONS_TABLE: Match.anyValue(),
-          FRONTEND_ORIGIN: Match.anyValue(),
+          FRONTEND_ORIGIN: 'http://localhost:3000',
         },
       },
     });
@@ -351,19 +309,6 @@ describe('InfraStack DynamoDB tables', () => {
     const policies = Object.values(
       template.findResources('AWS::IAM::Policy'),
     );
-    const cloudFrontStatements = policies.flatMap(
-      (policy) => policy.Properties.PolicyDocument.Statement,
-    ).filter((statement: Record<string, unknown>) => {
-      const actions = Array.isArray(statement.Action)
-        ? statement.Action
-        : [statement.Action];
-      return actions.includes('cloudfront:CreateInvalidation');
-    });
-    expect(cloudFrontStatements).toHaveLength(1);
-    expect(JSON.stringify(cloudFrontStatements[0]?.Resource)).toContain(
-      'FrontendDistribution',
-    );
-
     for (const policy of policies) {
       const statements = policy.Properties.PolicyDocument.Statement;
       expect(

@@ -1,18 +1,13 @@
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as bedrockagentcore from 'aws-cdk-lib/aws-bedrockagentcore';
 import * as cdk from 'aws-cdk-lib';
-import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
-import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as logs from 'aws-cdk-lib/aws-logs';
-import * as s3 from 'aws-cdk-lib/aws-s3';
-import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import { Construct } from 'constructs';
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const MODEL_ID = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
@@ -322,81 +317,9 @@ export class InfraStack extends cdk.Stack {
       environment: {
         AGENT_RUNTIME_ARN: agentRuntime.agentRuntimeArn,
         CONVERSATIONS_TABLE: conversationsTable.tableName,
+        FRONTEND_ORIGIN: LOCAL_FRONTEND_ORIGIN,
       },
     });
-
-    const frontendBuildPath =
-      this.node.tryGetContext('frontendBuildPath') ??
-      process.env.FRONTEND_BUILD_PATH ??
-      join(projectRoot, '..', 'frontend', 'out');
-    if (!existsSync(frontendBuildPath)) {
-      throw new Error(
-        `Static frontend build not found at "${frontendBuildPath}". Run "npm run build:frontend" from the infra directory or set FRONTEND_BUILD_PATH.`,
-      );
-    }
-
-    const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      enforceSSL: true,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-    });
-
-    const frontendRoutes = new cloudfront.Function(this, 'FrontendRoutes', {
-      code: cloudfront.FunctionCode.fromInline(`
-function handler(event) {
-  var request = event.request;
-  var uri = request.uri;
-  var lastSegment = uri.substring(uri.lastIndexOf('/') + 1);
-  if (!lastSegment || lastSegment.indexOf('.') === -1) {
-    request.uri = uri.endsWith('/') ? uri + 'index.html' : uri + '.html';
-  }
-  return request;
-}`),
-      runtime: cloudfront.FunctionRuntime.JS_2_0,
-    });
-
-    const frontendDistribution = new cloudfront.Distribution(
-      this,
-      'FrontendDistribution',
-      {
-        defaultRootObject: 'index.html',
-        defaultBehavior: {
-          origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
-          viewerProtocolPolicy:
-            cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-          functionAssociations: [
-            {
-              function: frontendRoutes,
-              eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
-            },
-          ],
-        },
-        priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
-      },
-    );
-    chatHandler.addEnvironment(
-      'FRONTEND_ORIGIN',
-      `https://${frontendDistribution.distributionDomainName}`,
-    );
-
-    const frontendDeploymentLogGroup = new logs.LogGroup(
-      this,
-      'FrontendDeploymentLogGroup',
-      {
-        logGroupName: `/aws/lambda/${prefix}-FrontendDeployment`,
-        retention: logs.RetentionDays.ONE_WEEK,
-        removalPolicy: cdk.RemovalPolicy.DESTROY,
-      },
-    );
-    const frontendDeploymentRole = new iam.Role(
-      this,
-      'FrontendDeploymentRole',
-      {
-        assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
-      },
-    );
-    frontendDeploymentLogGroup.grantWrite(frontendDeploymentRole);
 
     const api = new apigateway.RestApi(this, 'ChatApi', {
       restApiName: `${prefix}-ChatApi`,
@@ -404,10 +327,7 @@ function handler(event) {
         types: [apigateway.EndpointType.REGIONAL],
       },
       defaultCorsPreflightOptions: {
-        allowOrigins: [
-          LOCAL_FRONTEND_ORIGIN,
-          `https://${frontendDistribution.distributionDomainName}`,
-        ],
+        allowOrigins: [LOCAL_FRONTEND_ORIGIN],
         allowMethods: ['POST', 'OPTIONS'],
         allowHeaders: ['Authorization', 'Content-Type', 'X-Conversa-Id'],
       },
@@ -416,7 +336,7 @@ function handler(event) {
     api.addGatewayResponse('UnauthorizedCors', {
       type: apigateway.ResponseType.UNAUTHORIZED,
       responseHeaders: {
-        'Access-Control-Allow-Origin': `'https://${frontendDistribution.distributionDomainName}'`,
+        'Access-Control-Allow-Origin': `'${LOCAL_FRONTEND_ORIGIN}'`,
         'Access-Control-Allow-Headers': "'Authorization,Content-Type,X-Conversa-Id'",
         'Access-Control-Allow-Methods': "'POST,OPTIONS'",
         Vary: "'Origin'",
@@ -425,7 +345,7 @@ function handler(event) {
     api.addGatewayResponse('AccessDeniedCors', {
       type: apigateway.ResponseType.ACCESS_DENIED,
       responseHeaders: {
-        'Access-Control-Allow-Origin': `'https://${frontendDistribution.distributionDomainName}'`,
+        'Access-Control-Allow-Origin': `'${LOCAL_FRONTEND_ORIGIN}'`,
         'Access-Control-Allow-Headers': "'Authorization,Content-Type,X-Conversa-Id'",
         'Access-Control-Allow-Methods': "'POST,OPTIONS'",
         Vary: "'Origin'",
@@ -444,44 +364,6 @@ function handler(event) {
       },
     );
 
-    const frontendDeployment = new s3deploy.BucketDeployment(
-      this,
-      'DeployFrontend',
-      {
-        sources: [
-          s3deploy.Source.asset(frontendBuildPath),
-          s3deploy.Source.jsonData('config.json', {
-            userPoolId: userPool.userPoolId,
-            userPoolClientId: userPoolClient.userPoolClientId,
-            chatApiUrl: api.urlForPath('/chat'),
-          }),
-        ],
-        destinationBucket: frontendBucket,
-        distribution: frontendDistribution,
-        distributionPaths: ['/*'],
-        prune: true,
-        role: frontendDeploymentRole,
-        logGroup: frontendDeploymentLogGroup,
-      },
-    );
-    restrictRolePolicy(frontendDeployment.handlerRole, (statements) =>
-      statements.map((statement) => {
-        const actions = Array.isArray(statement.Action)
-          ? statement.Action
-          : [statement.Action];
-        if (
-          actions.includes('cloudfront:CreateInvalidation') ||
-          actions.includes('cloudfront:GetInvalidation')
-        ) {
-          return {
-            ...statement,
-            Resource: frontendDistribution.distributionArn,
-          };
-        }
-        return statement;
-      }),
-    );
-
     new cdk.CfnOutput(this, 'UserPoolId', {
       value: userPool.userPoolId,
     });
@@ -493,12 +375,6 @@ function handler(event) {
     });
     new cdk.CfnOutput(this, 'AgentRuntimeArn', {
       value: agentRuntime.agentRuntimeArn,
-    });
-    new cdk.CfnOutput(this, 'FrontendUrl', {
-      value: `https://${frontendDistribution.distributionDomainName}`,
-    });
-    new cdk.CfnOutput(this, 'FrontendBucketName', {
-      value: frontendBucket.bucketName,
     });
   }
 }

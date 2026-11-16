@@ -1,9 +1,14 @@
 import * as cdk from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
+import { join } from 'node:path';
 import { InfraStack } from '../lib/infra-stack';
 
 describe('InfraStack DynamoDB tables', () => {
-  const app = new cdk.App();
+  const app = new cdk.App({
+    context: {
+      frontendBuildPath: join(__dirname, 'fixtures', 'frontend'),
+    },
+  });
   const template = Template.fromStack(new InfraStack(app, 'TestInfraStack'));
 
   test('creates the five backend tables with on-demand billing caps', () => {
@@ -54,7 +59,7 @@ describe('InfraStack DynamoDB tables', () => {
     });
   });
 
-  test('protects the streaming chat route with Cognito and local-origin CORS', () => {
+  test('protects the streaming chat route with Cognito and local/CloudFront CORS', () => {
     template.resourceCountIs('AWS::ApiGateway::RestApi', 1);
     template.hasResourceProperties('AWS::ApiGateway::Method', {
       HttpMethod: 'POST',
@@ -69,8 +74,59 @@ describe('InfraStack DynamoDB tables', () => {
       ResponseType: 'UNAUTHORIZED',
       ResponseParameters: {
         'gatewayresponse.header.Access-Control-Allow-Origin':
-          "'http://localhost:3000'",
+          "'*'",
       },
+    });
+    const synthesized = JSON.stringify(template.toJSON().Resources);
+    expect(synthesized).toContain('https://');
+    expect(synthesized).toContain('FrontendDistribution');
+  });
+
+  test('hosts the static frontend privately behind CloudFront and deploys runtime config', () => {
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+      BucketEncryption: {
+        ServerSideEncryptionConfiguration: [
+          { ServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } },
+        ],
+      },
+    });
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: {
+        DefaultRootObject: 'index.html',
+        PriceClass: 'PriceClass_100',
+        DefaultCacheBehavior: {
+          ViewerProtocolPolicy: 'redirect-to-https',
+          FunctionAssociations: [
+            Match.objectLike({ EventType: 'viewer-request' }),
+          ],
+        },
+      },
+    });
+    template.hasResourceProperties('Custom::CDKBucketDeployment', {
+      DistributionPaths: ['/*'],
+      Prune: true,
+      SourceMarkers: Match.arrayWith([
+        Match.objectLike({
+          '<<marker:0xbaba:0>>': {
+            Ref: Match.stringLikeRegexp('UserPool'),
+          },
+          '<<marker:0xbaba:1>>': {
+            Ref: Match.stringLikeRegexp('UserPoolWebClient'),
+          },
+          '<<marker:0xbaba:2>>': {
+            Ref: Match.stringLikeRegexp('ChatApi'),
+          },
+        }),
+      ]),
+    });
+    template.hasOutput('FrontendUrl', {
+      Value: Match.anyValue(),
     });
   });
 
@@ -157,7 +213,7 @@ describe('InfraStack DynamoDB tables', () => {
   });
 
   test('creates one Lambda for each existing payment tool with the table names configured', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 4);
+    template.resourceCountIs('AWS::Lambda::Function', 6);
     for (const functionName of [
       'AlanLorenz-ListCatalog',
       'AlanLorenz-RegisterIntention',
@@ -186,6 +242,7 @@ describe('InfraStack DynamoDB tables', () => {
       Environment: {
         Variables: {
           AGENT_RUNTIME_ARN: Match.anyValue(),
+          FRONTEND_ORIGIN: Match.anyValue(),
         },
       },
     });

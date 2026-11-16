@@ -1,9 +1,9 @@
 # Infraestrutura do desafio
 
-Este pacote define a infraestrutura AWS com CDK em TypeScript. O escopo
-aprovado no momento é somente o backend: mantenha o frontend local e não
-implante S3 ou CloudFront até nova orientação da coordenação. A stack está
-configurada para `us-east-1`.
+Este pacote define a infraestrutura AWS com CDK em TypeScript para o backend
+e a hospedagem do frontend estático em S3 + CloudFront. A stack está
+configurada para `us-east-1`. O código e a síntese da stack não autorizam o
+deploy: não publique recursos até receber autorização expressa.
 
 ## Arquitetura e estado
 
@@ -11,10 +11,13 @@ configurada para `us-east-1`.
   transações.
 - User Pool do Cognito sem auto cadastro, com login por e-mail e recuperação
   por e-mail. A criação de usuários deve ser administrativa.
-- App client público para o frontend local, com autenticação SRP e sem OAuth
-  nem segredo.
+- App client público para o frontend, com autenticação SRP e sem OAuth nem
+  segredo. O cadastro é administrativo; usuários são provisionados pela
+  coordenação.
 - REST API com authorizer Cognito e streaming de resposta habilitado na rota
-  `POST /chat`. O CORS permite somente `http://localhost:3000`.
+  `POST /chat`. O CORS permite `http://localhost:3000` e o domínio CloudFront.
+- Bucket S3 privado, acessível pelo CloudFront com Origin Access Control, e
+  publicação do frontend estático com `config.json` gerado pela stack.
 - A Lambda de chat obtém o `sub` exclusivamente do authorizer Cognito, invoca
   o AgentCore com um identificador de sessão derivado do usuário e da conversa
   e converte os eventos SSE do runtime em NDJSON para o cliente.
@@ -90,10 +93,21 @@ identificador de sessão é calculado no backend a partir de `sub` e conversa.
 
 ## Validar localmente
 
-Requisitos: Node.js/npm, Python 3.13 e `uv`. No PowerShell, a partir desta
-pasta:
+Requisitos: Node.js/npm, Python 3.13 e `uv`. Gere primeiro o build estático do
+chatbot existente:
 
 ```powershell
+Set-Location ..\..\..\..\chatbot-pagamentos\chat-web
+npm ci
+npm run check
+npm run build
+```
+
+O build gera `out/`, que a stack inclui no deploy. Volte para esta pasta e
+valide a infraestrutura:
+
+```powershell
+Set-Location ..\..\desafio-1\Desafio-1\alan-lorenz\infra
 npm ci
 npm run build
 npm test -- --runInBand
@@ -101,11 +115,14 @@ npm run test:agent
 npm run synth
 ```
 
-O `pretest` empacota o agente com dependências Linux ARM64 para CodeZip; o
-`synth` também executa esse empacotamento antes de sintetizar o CDK. A primeira
-execução pode baixar dependências Python. Esses comandos não invocam o Claude,
-não acessam dados AWS e não fazem deploy. Para validar as ferramentas
-TypeScript, execute `npm run check` na pasta `../tools/`.
+Se o build não estiver no caminho padrão do repositório irmão
+`chatbot-pagamentos\chat-web\out`, defina `FRONTEND_BUILD_PATH` para o caminho
+absoluto do diretório `out` antes de executar `npm run synth`. O `pretest`
+empacota o agente com dependências Linux ARM64 para CodeZip; o `synth` também
+executa esse empacotamento antes de sintetizar o CDK. A primeira execução pode
+baixar dependências Python. Esses comandos não invocam o Claude, não acessam
+dados AWS e não fazem deploy. Para validar as ferramentas TypeScript, execute
+`npm run check` na pasta `../tools/`.
 
 Depois de um deploy autorizado, o catálogo pode ser inserido sem sobrescrever
 estoque existente. Na pasta `../tools/`, configure `PRODUCTS_TABLE` com o nome
@@ -114,6 +131,5 @@ DynamoDB; não o execute como parte dos testes locais.
 
 Não execute `cdk deploy`, o seed de catálogo ou uma chamada ao Haiku sem
 autorização expressa. A primeira chamada ao modelo pode registrar a inscrição
-na conta, e o limite de crédito informado é US$ 20. O frontend continua local;
-esta etapa ainda não altera seu fluxo de autenticação Cognito nem faz deploy
-de recursos de frontend.
+na conta, e o limite de crédito informado é US$ 20. O build e a síntese locais
+não publicam os recursos nem o frontend.

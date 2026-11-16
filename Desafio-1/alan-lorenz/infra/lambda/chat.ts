@@ -49,7 +49,11 @@ function responseHeaders(event: ChatApiEvent): Record<string, string> {
     'Cache-Control': 'no-store',
   };
   const origin = requestHeaders(event).origin;
-  if (origin === LOCAL_FRONTEND_ORIGIN) {
+  if (
+    origin === LOCAL_FRONTEND_ORIGIN ||
+    (typeof process.env.FRONTEND_ORIGIN === 'string' &&
+      origin === process.env.FRONTEND_ORIGIN)
+  ) {
     headers['Access-Control-Allow-Origin'] = origin;
     headers.Vary = 'Origin';
   }

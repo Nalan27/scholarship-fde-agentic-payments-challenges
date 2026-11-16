@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
@@ -15,14 +14,12 @@ import {
   type PaymentStore,
   type Product,
   type PurchaseTransaction,
-  type ToolAuditRecord,
   type UserProfile,
 } from './types.ts';
 
 export type DynamoTableNames = {
   products: string;
   users: string;
-  conversations: string;
   intentions: string;
   transactions: string;
 };
@@ -39,10 +36,6 @@ export function tableNamesFromEnvironment(
   return {
     products: requiredTableName(env.PRODUCTS_TABLE, 'PRODUCTS_TABLE'),
     users: requiredTableName(env.USERS_TABLE, 'USERS_TABLE'),
-    conversations: requiredTableName(
-      env.CONVERSATIONS_TABLE,
-      'CONVERSATIONS_TABLE',
-    ),
     intentions: requiredTableName(env.INTENTIONS_TABLE, 'INTENTIONS_TABLE'),
     transactions: requiredTableName(
       env.TRANSACTIONS_TABLE,
@@ -316,25 +309,6 @@ export class DynamoPaymentStore implements PaymentStore {
     }
   }
 
-  async recordToolCall(record: ToolAuditRecord): Promise<void> {
-    const callId = randomBytes(8).toString('hex');
-    await this.client.send(
-      new PutCommand({
-        TableName: this.tables.conversations,
-        Item: {
-          userId: record.userId,
-          messageKey: `${record.conversaId}#tool#${record.createdAt}#${callId}`,
-          conversaId: record.conversaId,
-          tipo: 'tool_call',
-          tool: record.tool,
-          argumentos: JSON.stringify(record.arguments ?? {}),
-          resultado: JSON.stringify(record.result ?? null),
-          desfecho: record.outcome,
-          data: record.createdAt,
-        },
-      }),
-    );
-  }
 }
 
 export function createDynamoPaymentStore(

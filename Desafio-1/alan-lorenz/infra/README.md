@@ -24,7 +24,9 @@ deploy: não publique recursos até receber autorização expressa.
   publicação do frontend estático com `config.json` gerado pela stack.
 - A Lambda de chat obtém o `sub` exclusivamente do authorizer Cognito, invoca
   o AgentCore com um identificador de sessão derivado do usuário e da conversa
-  e converte os eventos SSE do runtime em NDJSON para o cliente.
+  e converte os eventos SSE do runtime em NDJSON para o cliente. Ela grava a
+  nova mensagem do usuário antes da invocação e, ao final, persiste a resposta
+  do agente e os eventos das ferramentas.
 - O runtime é um CodeZip Python 3.13, gerenciado pelo CDK, com Strands e o
   modelo `us.anthropic.claude-haiku-4-5-20251001-v1:0`.
 - O agente usa o prompt de negócio original, mantém o histórico enviado pelo
@@ -39,8 +41,10 @@ deploy: não publique recursos até receber autorização expressa.
   com permissões DynamoDB limitadas às tabelas e operações necessárias. O
   papel do runtime só invoca as três Lambdas e o perfil/modelo Bedrock
   configurados.
-- As chamadas das ferramentas, inclusive recusas, são registradas na tabela
-  de conversas, sem adicionar uma sexta tabela.
+- Somente a role da Lambda do chat tem `dynamodb:PutItem` na tabela de
+  conversas. As Lambdas das ferramentas não recebem o nome nem permissão para
+  acessar essa tabela; os eventos de ferramenta retornam pelo AgentCore e são
+  gravados pelo handler do chat.
 
 O prompt de negócio está em
 `../frontend/src/lib/chat/payload.ts`; sua cópia server-side no runtime não
@@ -54,7 +58,7 @@ pelas tools, não pelo modelo.
 |---|---|---|---|
 | `AlanLorenz-Produtos` | `id` | — | Catálogo, preço em centavos e estoque |
 | `AlanLorenz-Usuarios` | `userId` | — | `sub` do Cognito e limite restante em centavos |
-| `AlanLorenz-Conversas` | `userId` | `messageKey` | Auditoria das tools; `messageKey` usa `<conversaId>#tool#<data ISO>#<id>` |
+| `AlanLorenz-Conversas` | `userId` | `messageKey` | Mensagens e eventos de ferramenta por conversa; chave `<conversaId>#<turno>#<ordem>` |
 | `AlanLorenz-Intencoes` | `intentionId` | — | Proprietário, conversa, total calculado, status e expiração |
 | `AlanLorenz-Transacoes` | `intentionId` | — | Uma transação por intenção; `transactionId` fica como atributo do item |
 
@@ -89,6 +93,12 @@ O histórico completo, incluindo mensagens de tools, é transmitido ao Strands;
 mensagens `system` vindas do cliente são ignoradas e substituídas pelo prompt
 server-side. O runtime devolve eventos SSE, que a Lambda converte em linhas
 NDJSON (`message`, `tool`, `error` e `done`).
+
+A persistência grava apenas a nova mensagem do usuário, a resposta produzida e
+os eventos das ferramentas do turno, sem regravar o histórico completo recebido
+do frontend. A chave determinística por conversa e turno torna os `PutItem`
+idempotentes em retentativas. Os itens ficam sob a partição do `sub` validado;
+a role do chat tem apenas escrita na tabela, sem leitura.
 
 O API Gateway REST foi escolhido para preservar a resposta incremental: o
 streaming de resposta não é suportado por HTTP API. O endpoint permanece

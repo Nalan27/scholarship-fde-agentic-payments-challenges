@@ -39,88 +39,25 @@ function parseToolContext(event: unknown): ToolContext {
 
 export function createToolHandlers(store: PaymentStore) {
   const tools = createPaymentTools(store);
-  const recordToolCall = async (
-    tool: string,
-    userId: string,
-    conversaId: string,
-    args: unknown,
-    result: unknown,
-    failed: boolean,
-  ) => {
-    const resultRecord = isRecord(result) ? result : undefined;
-    const outcome =
-      tool === 'listar_catalogo'
-        ? 'consultado'
-        : failed
-          ? 'EXCECAO'
-          : typeof resultRecord?.erro === 'string'
-            ? resultRecord.erro
-            : typeof resultRecord?.status === 'string'
-              ? resultRecord.status
-              : 'desconhecido';
-    const summary =
-      tool === 'listar_catalogo'
-        ? {
-            produtos: Array.isArray(resultRecord?.produtos)
-              ? resultRecord.produtos.length
-              : 0,
-          }
-        : result;
-    try {
-      await store.recordToolCall({
-        userId,
-        conversaId,
-        tool,
-        arguments: args,
-        result: failed ? { erro: 'EXCECAO', mensagem: String(result) } : summary,
-        outcome,
-        createdAt: new Date().toISOString(),
-      });
-    } catch (error) {
-      console.error(`[auditoria] falha ao registrar ${tool}:`, error);
-    }
-  };
-  const audited = async <T>(
-    tool: string,
-    userId: string,
-    conversaId: string,
-    args: unknown,
-    execute: () => Promise<T>,
-  ): Promise<T> => {
-    try {
-      const result = await execute();
-      await recordToolCall(tool, userId, conversaId, args, result, false);
-      return result;
-    } catch (error) {
-      await recordToolCall(tool, userId, conversaId, args, error, true);
-      throw error;
-    }
-  };
 
   return {
     listar_catalogo: async (event: unknown) => {
-      const { userId, conversaId, arguments: args } = parseToolContext(event);
-      return audited('listar_catalogo', userId, conversaId, args, () =>
-        tools.listarCatalogo({ categoria: args.categoria }),
-      );
+      const { arguments: args } = parseToolContext(event);
+      return tools.listarCatalogo({ categoria: args.categoria });
     },
     registrar_intencao: async (event: unknown) => {
       const { userId, conversaId, arguments: args } = parseToolContext(event);
-      return audited('registrar_intencao', userId, conversaId, args, () =>
-        tools.registrarIntencao(userId, conversaId, {
-          produto_id: args.produto_id,
-          quantidade: args.quantidade,
-        }),
-      );
+      return tools.registrarIntencao(userId, conversaId, {
+        produto_id: args.produto_id,
+        quantidade: args.quantidade,
+      });
     },
     realizar_compra: async (event: unknown) => {
       const { userId, conversaId, arguments: args } = parseToolContext(event);
-      return audited('realizar_compra', userId, conversaId, args, () =>
-        tools.realizarCompra(userId, conversaId, {
-          intencao_id: args.intencao_id,
-          metodo_pagamento: args.metodo_pagamento,
-        }),
-      );
+      return tools.realizarCompra(userId, conversaId, {
+        intencao_id: args.intencao_id,
+        metodo_pagamento: args.metodo_pagamento,
+      });
     },
   };
 }

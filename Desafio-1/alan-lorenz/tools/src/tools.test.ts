@@ -8,7 +8,6 @@ import {
   type PaymentStore,
   type Product,
   type PurchaseTransaction,
-  type ToolAuditRecord,
   type UserProfile,
 } from './types.ts';
 import { PRODUCTS } from './catalog.ts';
@@ -41,7 +40,6 @@ class MemoryPaymentStore implements PaymentStore {
   readonly intentions = new Map<string, Intention>();
   readonly users = new Map<string, UserProfile>();
   readonly transactions = new Map<string, PurchaseTransaction>();
-  readonly toolCalls: ToolAuditRecord[] = [];
 
   listProducts(): Promise<Product[]> {
     return Promise.resolve([...this.products.values()].map((product) => ({ ...product })));
@@ -125,10 +123,6 @@ class MemoryPaymentStore implements PaymentStore {
     return Promise.resolve();
   }
 
-  recordToolCall(record: ToolAuditRecord): Promise<void> {
-    this.toolCalls.push(record);
-    return Promise.resolve();
-  }
 }
 
 function createTestTools(

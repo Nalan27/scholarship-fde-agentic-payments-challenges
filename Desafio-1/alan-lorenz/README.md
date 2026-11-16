@@ -16,6 +16,11 @@ autentica com Cognito e envia o ID token à API. O agente reutiliza o prompt de
 negócio original, mantém o histórico e envia o `sub` autenticado às tools fora
 dos argumentos visíveis ao modelo.
 
+A Lambda do chat persiste cada nova mensagem do usuário, a resposta do agente
+e as chamadas concluídas das ferramentas em `AlanLorenz-Conversas`. Somente a
+role dessa Lambda pode gravar nessa tabela; o acesso usa o `sub` do Cognito
+como chave de partição e a API não aceita identidade enviada no corpo.
+
 A validação local do frontend (26 testes e build estático), dos testes CDK
 (19 testes) e da síntese da stack passou. Não houve deploy, seed do catálogo
 nem chamada ao modelo; a primeira chamada ao Haiku pode registrar a inscrição

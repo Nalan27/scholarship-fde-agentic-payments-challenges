@@ -19,7 +19,6 @@ import {
 const tables = {
   products: 'Products',
   users: 'Users',
-  conversations: 'Conversations',
   intentions: 'Intentions',
   transactions: 'Transactions',
 };
@@ -63,7 +62,6 @@ test('tableNamesFromEnvironment requires every configured table', () => {
     tableNamesFromEnvironment({
       PRODUCTS_TABLE: ' Products ',
       USERS_TABLE: 'Users',
-      CONVERSATIONS_TABLE: 'Conversations',
       INTENTIONS_TABLE: 'Intentions',
       TRANSACTIONS_TABLE: 'Transactions',
     }),
@@ -166,28 +164,4 @@ test('DynamoDB transaction cancellation is surfaced as a purchase conflict', asy
   );
 
   await assert.rejects(store.completePurchase(samplePurchase()), PurchaseConflictError);
-});
-
-test('tool audit records are stored under the authenticated user and conversation key', async () => {
-  const store = createStore();
-  documentClientMock.on(PutCommand).resolves({});
-  await store.recordToolCall({
-    userId: 'cognito-sub-123',
-    conversaId: '3f1a9c2e-7b48-4d6a-9f01-2c5e8a4b7d13',
-    tool: 'realizar_compra',
-    arguments: { intencao_id: 'int_123456', metodo_pagamento: 'pix' },
-    result: { status: 'aprovado' },
-    outcome: 'aprovado',
-    createdAt: '2026-08-31T12:00:00.000Z',
-  });
-
-  const call = documentClientMock.commandCalls(PutCommand)[0];
-  assert.ok(call);
-  assert.equal(call.args[0].input.TableName, 'Conversations');
-  assert.equal(call.args[0].input.Item?.userId, 'cognito-sub-123');
-  assert.match(
-    String(call.args[0].input.Item?.messageKey),
-    /^3f1a9c2e-7b48-4d6a-9f01-2c5e8a4b7d13#tool#2026-08-31T12:00:00\.000Z#/,
-  );
-  assert.equal(call.args[0].input.Item?.desfecho, 'aprovado');
 });

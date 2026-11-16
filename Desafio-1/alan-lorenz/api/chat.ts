@@ -5,6 +5,12 @@ import {
 import type { StreamifyHandler } from 'aws-lambda';
 import { createHash } from 'node:crypto';
 import type { Writable } from 'node:stream';
+import {
+  createCompletionRecords,
+  createUserMessageRecord,
+  saveConversationRecord,
+  type ToolEventRecord,
+} from './conversation-store.ts';
 
 const LOCAL_FRONTEND_ORIGIN = 'http://localhost:3000';
 const UUID_V4 =
@@ -120,6 +126,25 @@ export function createRuntimeSessionId(userId: string, conversaId: string) {
   return createHash('sha256')
     .update(`${userId}\0${conversaId}`)
     .digest('hex');
+}
+
+function currentTurn(messages: ChatMessage[]) {
+  let latestUserMessage: string | undefined;
+  let turnNumber = 0;
+  for (const message of messages) {
+    if (
+      message.role === 'user' &&
+      typeof message.content === 'string' &&
+      message.content.trim()
+    ) {
+      latestUserMessage = message.content;
+      turnNumber += 1;
+    }
+  }
+  if (latestUserMessage === undefined) {
+    throw new Error('A non-empty user message is required');
+  }
+  return { latestUserMessage, turnNumber };
 }
 
 function httpResponseStream(
@@ -261,6 +286,28 @@ export const handler: StreamifyHandler<ChatApiEvent> = awslambda.streamifyRespon
       return;
     }
 
+    const { userId, conversaId, messages } = parsed.request;
+    const { latestUserMessage, turnNumber } = currentTurn(messages);
+    try {
+      await saveConversationRecord(
+        createUserMessageRecord(
+          userId,
+          conversaId,
+          turnNumber,
+          latestUserMessage,
+        ),
+      );
+    } catch (error) {
+      console.error('Failed to persist the user chat message:', error);
+      writeJsonError(
+        responseStream,
+        event,
+        500,
+        'CONVERSATION_PERSISTENCE_FAILED',
+      );
+      return;
+    }
+
     const stream = httpResponseStream(
       responseStream,
       event,
@@ -268,8 +315,9 @@ export const handler: StreamifyHandler<ChatApiEvent> = awslambda.streamifyRespon
       'application/x-ndjson; charset=utf-8',
     );
     let done = false;
+    let assistantContent = '';
+    const toolEvents: ToolEventRecord[] = [];
     try {
-      const { userId, conversaId, messages } = parsed.request;
       const result = await agentCore.send(
         new InvokeAgentRuntimeCommand({
           agentRuntimeArn,
@@ -286,6 +334,26 @@ export const handler: StreamifyHandler<ChatApiEvent> = awslambda.streamifyRespon
       }
 
       for await (const agentEvent of readAgentEvents(result.response)) {
+        if (isRecord(agentEvent) && agentEvent.type === 'done') {
+          continue;
+        }
+        if (
+          isRecord(agentEvent) &&
+          agentEvent.type === 'token' &&
+          typeof agentEvent.text === 'string'
+        ) {
+          assistantContent += agentEvent.text;
+        } else if (
+          isRecord(agentEvent) &&
+          agentEvent.type === 'tool' &&
+          typeof agentEvent.name === 'string'
+        ) {
+          toolEvents.push({
+            name: agentEvent.name,
+            arguments: agentEvent.arguments,
+            result: agentEvent.result,
+          });
+        }
         done = forwardAgentEvent(stream, agentEvent) || done;
       }
     } catch (error) {
@@ -298,6 +366,27 @@ export const handler: StreamifyHandler<ChatApiEvent> = awslambda.streamifyRespon
       );
       done = true;
     } finally {
+      try {
+        const completionRecords = createCompletionRecords(
+          userId,
+          conversaId,
+          turnNumber,
+          assistantContent,
+          toolEvents,
+        );
+        for (const record of completionRecords) {
+          await saveConversationRecord(record);
+        }
+      } catch (error) {
+        console.error('Failed to persist the chat response:', error);
+        stream.write(
+          `${JSON.stringify({
+            error: 'CONVERSATION_PERSISTENCE_FAILED',
+            done: true,
+          })}\n`,
+        );
+        done = true;
+      }
       if (!done) {
         stream.write(`${JSON.stringify({ done: true })}\n`);
       }

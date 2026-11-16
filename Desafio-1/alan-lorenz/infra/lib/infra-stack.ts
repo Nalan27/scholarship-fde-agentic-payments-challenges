@@ -97,7 +97,6 @@ export class InfraStack extends cdk.Stack {
     const toolEnvironment = {
       PRODUCTS_TABLE: productsTable.tableName,
       USERS_TABLE: usersTable.tableName,
-      CONVERSATIONS_TABLE: conversationsTable.tableName,
       INTENTIONS_TABLE: intentionsTable.tableName,
       TRANSACTIONS_TABLE: transactionsTable.tableName,
     };
@@ -152,11 +151,6 @@ export class InfraStack extends cdk.Stack {
       'listar-catalogo.ts',
     );
     addTablePermissions(catalogTool.role, productsTable, 'dynamodb:Scan');
-    addTablePermissions(
-      catalogTool.role,
-      conversationsTable,
-      'dynamodb:PutItem',
-    );
 
     const intentionTool = createToolLambda(
       'RegisterIntentionTool',
@@ -171,11 +165,6 @@ export class InfraStack extends cdk.Stack {
       'dynamodb:PutItem',
     );
     addTablePermissions(intentionTool.role, intentionsTable, 'dynamodb:PutItem');
-    addTablePermissions(
-      intentionTool.role,
-      conversationsTable,
-      'dynamodb:PutItem',
-    );
 
     const purchaseTool = createToolLambda(
       'RealizarCompraTool',
@@ -206,11 +195,6 @@ export class InfraStack extends cdk.Stack {
       purchaseTool.role,
       transactionsTable,
       'dynamodb:TransactWriteItems',
-    );
-    addTablePermissions(
-      purchaseTool.role,
-      conversationsTable,
-      'dynamodb:PutItem',
     );
 
     const agentRuntime = new bedrockagentcore.Runtime(this, 'ChatAgentRuntime', {
@@ -277,6 +261,7 @@ export class InfraStack extends cdk.Stack {
     });
     chatLogGroup.grantWrite(chatHandlerRole);
     agentRuntime.grantInvokeRuntime(chatHandlerRole);
+    addTablePermissions(chatHandlerRole, conversationsTable, 'dynamodb:PutItem');
 
     const chatHandler = new nodejs.NodejsFunction(this, 'ChatHandler', {
       entry: join(apiRoot, 'chat.ts'),
@@ -291,6 +276,7 @@ export class InfraStack extends cdk.Stack {
       role: chatHandlerRole,
       environment: {
         AGENT_RUNTIME_ARN: agentRuntime.agentRuntimeArn,
+        CONVERSATIONS_TABLE: conversationsTable.tableName,
       },
     });
 

@@ -5,6 +5,12 @@ import {
   parseRequest,
   readAgentEvents,
 } from '../../api/chat';
+import {
+  conversationMessageKey,
+  createCompletionRecords,
+  createUserMessageRecord,
+  putConversationRecord,
+} from '../../api/conversation-store';
 
 const conversaId = 'c3ad9981-cd4c-4a01-9a7a-f7248173ad19';
 
@@ -59,6 +65,75 @@ describe('chat request validation', () => {
     expect(first).toHaveLength(64);
     expect(createRuntimeSessionId('user-one', conversaId)).toBe(first);
     expect(createRuntimeSessionId('user-two', conversaId)).not.toBe(first);
+  });
+});
+
+describe('chat conversation persistence', () => {
+  test('uses the Cognito user, conversation, and turn for stable message keys', () => {
+    const userMessage = createUserMessageRecord(
+      'authenticated-user',
+      conversaId,
+      2,
+      'Quero comprar um fone',
+      '2026-11-16T20:00:00.000Z',
+    );
+    const assistantRecords = createCompletionRecords(
+      'authenticated-user',
+      conversaId,
+      2,
+      'Qual método de pagamento?',
+      [],
+      '2026-11-16T20:00:01.000Z',
+    );
+
+    expect(userMessage.userId).toBe('authenticated-user');
+    expect(userMessage.messageKey).toBe(
+      conversationMessageKey(conversaId, 2, 0),
+    );
+    expect(assistantRecords[0]?.messageKey).toBe(
+      conversationMessageKey(conversaId, 2, 1),
+    );
+    expect(assistantRecords[0]?.content).toBe('Qual método de pagamento?');
+  });
+
+  test('persists tool records and assistant text via one table-scoped PutItem', async () => {
+    const toolRecord = createCompletionRecords(
+      'authenticated-user',
+      conversaId,
+      1,
+      'Encontrei produtos.',
+      [
+        {
+          name: 'listar_catalogo',
+          arguments: {},
+          result: { produtos: [{ id: 'prod_1' }, { id: 'prod_2' }] },
+        },
+      ],
+      '2026-11-16T20:00:01.000Z',
+    );
+    const commandInputs: unknown[] = [];
+
+    await putConversationRecord(
+      async (command) => {
+        commandInputs.push(command.input);
+      },
+      'AlanLorenz-Conversas',
+      toolRecord[0]!,
+    );
+
+    expect(commandInputs).toHaveLength(1);
+    expect(commandInputs[0]).toMatchObject({
+      TableName: 'AlanLorenz-Conversas',
+      Item: {
+        userId: 'authenticated-user',
+        conversaId,
+        tipo: 'tool_call',
+        tool: 'listar_catalogo',
+        resultado: JSON.stringify({ produtos: 2 }),
+        desfecho: 'consultado',
+      },
+    });
+    expect(toolRecord[1]?.role).toBe('assistant');
   });
 });
 

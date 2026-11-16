@@ -16,9 +16,9 @@ no Bedrock AgentCore.
 - Compra valida intenção, proprietário, conversa, expiração, método, limite e
   estoque. As atualizações de intenção, limite, estoque e transação ocorrem
   em uma única transação condicional DynamoDB.
-- Cada chamada de ferramenta, inclusive recusas, é auditada na tabela de
-  conversas. Falha de auditoria é registrada em stderr e não desfaz uma compra
-  já confirmada.
+- As Lambdas das ferramentas não acessam a tabela de conversas. Seus eventos
+  retornam pelo AgentCore e são persistidos pela Lambda do chat, que tem
+  permissão de escrita restrita à tabela.
 - O contexto autenticado (`userId` e `conversaId`) é separado dos argumentos
   fornecidos pelo modelo. O runtime Strands recebe o `sub` validado pelo
   Cognito da Lambda de chat e o injeta nas chamadas; nunca aceite `userId` dos

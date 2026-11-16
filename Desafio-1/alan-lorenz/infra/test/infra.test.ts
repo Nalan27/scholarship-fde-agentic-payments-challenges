@@ -226,7 +226,6 @@ describe('InfraStack DynamoDB tables', () => {
           Variables: {
             PRODUCTS_TABLE: Match.anyValue(),
             USERS_TABLE: Match.anyValue(),
-            CONVERSATIONS_TABLE: Match.anyValue(),
             INTENTIONS_TABLE: Match.anyValue(),
             TRANSACTIONS_TABLE: Match.anyValue(),
           },
@@ -242,6 +241,7 @@ describe('InfraStack DynamoDB tables', () => {
       Environment: {
         Variables: {
           AGENT_RUNTIME_ARN: Match.anyValue(),
+          CONVERSATIONS_TABLE: Match.anyValue(),
           FRONTEND_ORIGIN: Match.anyValue(),
         },
       },
@@ -256,6 +256,54 @@ describe('InfraStack DynamoDB tables', () => {
         ]),
       },
     });
+  });
+
+  test('grants only the chat Lambda write access to the conversations table', () => {
+    const conversationPolicies = Object.values(
+      template.findResources('AWS::IAM::Policy'),
+    ).filter((resource) =>
+      JSON.stringify(resource.Properties.PolicyDocument).includes(
+        'ConversationsTable',
+      ),
+    );
+    expect(conversationPolicies).toHaveLength(1);
+    expect(conversationPolicies[0]?.Properties.Roles).toEqual([
+      { Ref: expect.stringMatching(/ChatHandlerRole/) },
+    ]);
+    const conversationStatements =
+      conversationPolicies[0]?.Properties.PolicyDocument.Statement.filter(
+        (statement: Record<string, unknown>) =>
+          JSON.stringify(statement.Resource).includes('ConversationsTable'),
+      );
+    expect(conversationStatements).toEqual([
+      {
+        Action: 'dynamodb:PutItem',
+        Effect: 'Allow',
+        Resource: {
+          'Fn::GetAtt': [
+            expect.stringMatching(/ConversationsTable/),
+            'Arn',
+          ],
+        },
+      },
+    ]);
+
+    const toolFunctions = Object.values(
+      template.findResources('AWS::Lambda::Function'),
+    );
+    for (const functionName of [
+      'AlanLorenz-ListCatalog',
+      'AlanLorenz-RegisterIntention',
+      'AlanLorenz-RealizarCompra',
+    ]) {
+      const toolFunction = toolFunctions.find(
+        (resource) => resource.Properties.FunctionName === functionName,
+      );
+      expect(toolFunction).toBeDefined();
+      expect(
+        toolFunction?.Properties.Environment.Variables,
+      ).not.toHaveProperty('CONVERSATIONS_TABLE');
+    }
   });
 
   test('grants DynamoDB tool access through resource-scoped policies', () => {

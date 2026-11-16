@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createToolHandlers } from './inputs.ts';
-import type { PaymentStore, ToolAuditRecord } from '../types.ts';
+import type { PaymentStore } from '../types.ts';
 
 const VALID_CONTEXT = {
   authenticatedContext: {
@@ -20,10 +20,6 @@ function hasProducts(value: unknown): value is { produtos: unknown[] } {
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function unusedStore(): PaymentStore {
   const unexpected = () => Promise.reject(new Error('store should not be called'));
   return {
@@ -35,7 +31,6 @@ function unusedStore(): PaymentStore {
     putIntention: unexpected,
     cancelIntention: unexpected,
     completePurchase: unexpected,
-    recordToolCall: unexpected,
   };
 }
 
@@ -58,8 +53,7 @@ test('tool handlers require authenticated identity separate from model arguments
   );
 });
 
-test('model arguments cannot replace the authenticated user recorded for a tool call', async () => {
-  const auditRecords: ToolAuditRecord[] = [];
+test('tool handlers execute catalog calls without conversation audit storage', async () => {
   const store: PaymentStore = {
     ...unusedStore(),
     listProducts: async () => [
@@ -72,9 +66,6 @@ test('model arguments cannot replace the authenticated user recorded for a tool 
         categoria: 'audio',
       },
     ],
-    recordToolCall: async (record) => {
-      auditRecords.push(record);
-    },
   };
   const handlers = createToolHandlers(store);
 
@@ -85,9 +76,4 @@ test('model arguments cannot replace the authenticated user recorded for a tool 
 
   assert.ok(hasProducts(result));
   assert.equal(result.produtos.length, 1);
-  assert.equal(auditRecords[0]?.userId, 'cognito-sub-from-jwt');
-  const recordedArguments = auditRecords[0]?.arguments;
-  assert.ok(isRecord(recordedArguments));
-  assert.equal(recordedArguments.userId, 'model-supplied-user');
-  assert.equal(auditRecords[0]?.outcome, 'consultado');
 });

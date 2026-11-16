@@ -55,16 +55,6 @@ export type PurchaseTransaction = {
   transactionDate: string;
 };
 
-export type ToolAuditRecord = {
-  userId: string;
-  conversaId: string;
-  tool: string;
-  arguments: unknown;
-  result: unknown;
-  outcome: string;
-  createdAt: string;
-};
-
 export interface PaymentStore {
   listProducts(): Promise<Product[]>;
   getProduct(productId: string): Promise<Product | undefined>;
@@ -74,7 +64,6 @@ export interface PaymentStore {
   putIntention(intention: Intention): Promise<void>;
   cancelIntention(intention: Intention): Promise<boolean>;
   completePurchase(transaction: PurchaseTransaction): Promise<void>;
-  recordToolCall(record: ToolAuditRecord): Promise<void>;
 }
 
 export class DuplicateIntentionError extends Error {

@@ -230,8 +230,8 @@ describe('InfraStack DynamoDB tables', () => {
     });
   });
 
-  test('creates one Lambda for each existing payment tool with the table names configured', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 6);
+  test('creates the chat and three payment tool Lambdas with table names configured', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 5);
     for (const functionName of [
       'AlanLorenz-ListCatalog',
       'AlanLorenz-RegisterIntention',
@@ -345,5 +345,39 @@ describe('InfraStack DynamoDB tables', () => {
         ]),
       },
     });
+  });
+
+  test('does not synthesize IAM statements with an unscoped wildcard resource', () => {
+    const policies = Object.values(
+      template.findResources('AWS::IAM::Policy'),
+    );
+    const cloudFrontStatements = policies.flatMap(
+      (policy) => policy.Properties.PolicyDocument.Statement,
+    ).filter((statement: Record<string, unknown>) => {
+      const actions = Array.isArray(statement.Action)
+        ? statement.Action
+        : [statement.Action];
+      return actions.includes('cloudfront:CreateInvalidation');
+    });
+    expect(cloudFrontStatements).toHaveLength(1);
+    expect(JSON.stringify(cloudFrontStatements[0]?.Resource)).toContain(
+      'FrontendDistribution',
+    );
+
+    for (const policy of policies) {
+      const statements = policy.Properties.PolicyDocument.Statement;
+      expect(
+        statements.filter(
+          (statement: Record<string, unknown>) => statement.Resource === '*',
+        ),
+      ).toHaveLength(0);
+    }
+
+    const roles = Object.values(template.findResources('AWS::IAM::Role'));
+    for (const role of roles) {
+      expect(role.Properties.ManagedPolicyArns ?? []).not.toContain(
+        Match.stringLikeRegexp('AWSLambdaBasicExecutionRole'),
+      );
+    }
   });
 });

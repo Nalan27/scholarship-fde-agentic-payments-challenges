@@ -41,12 +41,19 @@ deploy: não publique recursos até receber autorização expressa.
   transação. A chave da transação é a intenção, impedindo pagamento duplicado.
 - Cada Lambda tem grupo de logs com retenção de uma semana e papel separado,
   com permissões DynamoDB limitadas às tabelas e operações necessárias. O
-  papel do runtime só invoca as três Lambdas e o perfil/modelo Bedrock
-  configurados.
+  runtime invoca somente as três Lambdas e o perfil/modelo Bedrock
+  configurados e mantém somente os grants de logs/identidade necessários à
+  execução.
 - Somente a role da Lambda do chat tem `dynamodb:PutItem` na tabela de
   conversas. As Lambdas das ferramentas não recebem o nome nem permissão para
   acessar essa tabela; os eventos de ferramenta retornam pelo AgentCore e são
   gravados pelo handler do chat.
+- Os grants globais `Resource: "*"` de X-Ray/métricas do construct AgentCore
+  foram removidos (tracing e métricas customizadas não são usados). A
+  invalidação CloudFront usa somente o ARN da distribuição; o provedor de
+  deploy tem role e log group próprios. O bucket não usa autoexclusão automática,
+  portanto deve ser esvaziado antes de `cdk destroy`. O teste CDK verifica que
+  nenhuma policy tenha `Resource: "*"`.
 
 O prompt de negócio está em
 `../frontend/src/lib/chat/payload.ts`; sua cópia server-side no runtime não

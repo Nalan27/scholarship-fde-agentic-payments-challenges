@@ -19,6 +19,43 @@ const MODEL_ID = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 const FOUNDATION_MODEL_ID = MODEL_ID.replace(/^us\./, '');
 const LOCAL_FRONTEND_ORIGIN = 'http://localhost:3000';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function restrictRolePolicy(
+  role: iam.IRole,
+  transform: (
+    statements: Record<string, unknown>[],
+  ) => Record<string, unknown>[],
+) {
+  if (!(role instanceof iam.Role)) {
+    throw new Error('Expected a concrete IAM role');
+  }
+  const defaultPolicy = role.node.tryFindChild('DefaultPolicy');
+  if (!(defaultPolicy instanceof iam.Policy)) {
+    throw new Error(`Default policy not found for role ${role.roleName}`);
+  }
+  const cfnPolicy = defaultPolicy.node.defaultChild;
+  if (!(cfnPolicy instanceof iam.CfnPolicy)) {
+    throw new Error(`CloudFormation policy not found for role ${role.roleName}`);
+  }
+
+  cfnPolicy.addOverride(
+    'Properties.PolicyDocument.Statement',
+    cdk.Lazy.any({
+      // Resolve after the CDK source bindings add their deployment grants.
+      produce: () => {
+        const statements = defaultPolicy.document.toJSON().Statement;
+        if (!Array.isArray(statements) || !statements.every(isRecord)) {
+          throw new Error(`Invalid policy document for role ${role.roleName}`);
+        }
+        return transform(statements);
+      },
+    }),
+  );
+}
+
 export class InfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -216,6 +253,14 @@ export class InfraStack extends cdk.Stack {
       },
     });
 
+    restrictRolePolicy(agentRuntime.role, (statements) =>
+      statements.filter(
+        (statement) =>
+          statement.Sid !== 'XRayAccess' &&
+          statement.Sid !== 'CloudWatchMetrics',
+      ),
+    );
+
     agentRuntime.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['lambda:InvokeFunction'],
@@ -294,7 +339,6 @@ export class InfraStack extends cdk.Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
-      autoDeleteObjects: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
@@ -335,6 +379,24 @@ function handler(event) {
       'FRONTEND_ORIGIN',
       `https://${frontendDistribution.distributionDomainName}`,
     );
+
+    const frontendDeploymentLogGroup = new logs.LogGroup(
+      this,
+      'FrontendDeploymentLogGroup',
+      {
+        logGroupName: `/aws/lambda/${prefix}-FrontendDeployment`,
+        retention: logs.RetentionDays.ONE_WEEK,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      },
+    );
+    const frontendDeploymentRole = new iam.Role(
+      this,
+      'FrontendDeploymentRole',
+      {
+        assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      },
+    );
+    frontendDeploymentLogGroup.grantWrite(frontendDeploymentRole);
 
     const api = new apigateway.RestApi(this, 'ChatApi', {
       restApiName: `${prefix}-ChatApi`,
@@ -382,20 +444,43 @@ function handler(event) {
       },
     );
 
-    new s3deploy.BucketDeployment(this, 'DeployFrontend', {
-      sources: [
-        s3deploy.Source.asset(frontendBuildPath),
-        s3deploy.Source.jsonData('config.json', {
-          userPoolId: userPool.userPoolId,
-          userPoolClientId: userPoolClient.userPoolClientId,
-          chatApiUrl: api.urlForPath('/chat'),
-        }),
-      ],
-      destinationBucket: frontendBucket,
-      distribution: frontendDistribution,
-      distributionPaths: ['/*'],
-      prune: true,
-    });
+    const frontendDeployment = new s3deploy.BucketDeployment(
+      this,
+      'DeployFrontend',
+      {
+        sources: [
+          s3deploy.Source.asset(frontendBuildPath),
+          s3deploy.Source.jsonData('config.json', {
+            userPoolId: userPool.userPoolId,
+            userPoolClientId: userPoolClient.userPoolClientId,
+            chatApiUrl: api.urlForPath('/chat'),
+          }),
+        ],
+        destinationBucket: frontendBucket,
+        distribution: frontendDistribution,
+        distributionPaths: ['/*'],
+        prune: true,
+        role: frontendDeploymentRole,
+        logGroup: frontendDeploymentLogGroup,
+      },
+    );
+    restrictRolePolicy(frontendDeployment.handlerRole, (statements) =>
+      statements.map((statement) => {
+        const actions = Array.isArray(statement.Action)
+          ? statement.Action
+          : [statement.Action];
+        if (
+          actions.includes('cloudfront:CreateInvalidation') ||
+          actions.includes('cloudfront:GetInvalidation')
+        ) {
+          return {
+            ...statement,
+            Resource: frontendDistribution.distributionArn,
+          };
+        }
+        return statement;
+      }),
+    );
 
     new cdk.CfnOutput(this, 'UserPoolId', {
       value: userPool.userPoolId,

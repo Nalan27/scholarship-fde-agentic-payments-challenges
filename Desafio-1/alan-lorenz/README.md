@@ -29,10 +29,14 @@ autorizado.
 
 ### Pendências antes da entrega
 
-1. **Revalidar o menor privilégio:** não há `Resource: "*"` global, mas ainda
-   existem curingas dentro de ARNs delimitados, incluindo o padrão regional do
-   modelo Bedrock. O PDF pede roles sem permissões curinga; confirme se cada
-   padrão pode ser substituído por ARNs exatos antes do deploy.
+1. **Revalidar o menor privilégio antes do deploy:** o acesso ao modelo agora
+   enumera os ARNs de destino necessários ao perfil US do Claude Haiku
+   (`us-east-1`, `us-east-2` e `us-west-2`), em vez de usar um curinga regional.
+   Ainda há padrões curinga delimitados nas permissões operacionais geradas pelo
+   AgentCore para logs, identidade e invocação do runtime. O PDF proíbe
+   `Action: "*"` com `Resource: "*"` e políticas gerenciadas amplas; os testes
+   verificam que não haja recurso global `"*"`. Confira a síntese e valide o
+   comportamento do runtime após o deploy.
 2. **Preparar a conta AWS:** configurar um alerta no AWS Budgets antes do
    primeiro deploy e confirmar no console o acesso ao modelo Bedrock em
    `us-east-1`. Nenhum dos dois foi confirmado.
@@ -117,10 +121,15 @@ limitadas aos ARNs das tabelas indicadas; nenhuma role de aplicação recebe
 
 As permissões globais `Resource: "*"` geradas pelo CDK para X-Ray/métricas do
 AgentCore foram removidas; tracing e publicação dessas métricas não são usados
-pela aplicação. Não há role nem recursos para publicar o frontend. Os padrões
-`*` que restam aparecem somente dentro de ARNs delimitados por serviço/conta/
-região (por exemplo, logs do runtime e destinos do perfil de inferência), não
-como recurso global. Um teste CDK falha se voltar a surgir `Resource: "*"`.
+pela aplicação. Não há role nem recursos para publicar o frontend. O acesso
+ao Claude Haiku usa ARNs exatos do perfil de inferência e dos três destinos
+regionais desse perfil. Os padrões `*` restantes vêm de permissões operacionais
+do AgentCore, delimitadas à região/conta e a logs, streams, identidade ou
+invocação do runtime; não são grants globais de dados. Um teste CDK falha se
+voltar a surgir `Resource: "*"`. Os três destinos do perfil US e os ARNs de
+modelo correspondentes seguem a [disponibilidade regional oficial do Claude
+Haiku 4.5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-haiku-4-5.html)
+e os [requisitos IAM para perfis de inferência](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-prereq.html).
 
 O role de deploy usado por quem executa CDK/bootstrap é separado das roles em
 runtime; use credenciais AWS autorizadas e não armazene chaves no repositório.
@@ -138,8 +147,10 @@ npm run test:agent
 npm run synth
 ```
 
-`synth` valida/builda o frontend, empacota o agente e sintetiza a stack; não
-faz deploy nem chama o modelo. Após revisar o template e receber autorização:
+`synth` prepara as dependências do backend, empacota o agente e sintetiza a
+stack; não faz deploy nem chama o modelo. Para validar o frontend localmente,
+use `npm run check` na pasta `frontend/`. Após revisar o template e receber
+autorização:
 
 ```powershell
 npm run deploy

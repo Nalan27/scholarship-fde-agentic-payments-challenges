@@ -12,6 +12,7 @@ import { join } from 'node:path';
 
 const MODEL_ID = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 const FOUNDATION_MODEL_ID = MODEL_ID.replace(/^us\./, '');
+const MODEL_DESTINATION_REGIONS = ['us-east-1', 'us-east-2', 'us-west-2'];
 const LOCAL_FRONTEND_ORIGIN = 'http://localhost:3000';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -281,9 +282,10 @@ export class InfraStack extends cdk.Stack {
     agentRuntime.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
-        resources: [
-          `arn:${this.partition}:bedrock:us-*::foundation-model/${FOUNDATION_MODEL_ID}`,
-        ],
+        resources: MODEL_DESTINATION_REGIONS.map(
+          (region) =>
+            `arn:${this.partition}:bedrock:${region}::foundation-model/${FOUNDATION_MODEL_ID}`,
+        ),
         conditions: {
           StringLike: { 'bedrock:InferenceProfileArn': modelProfileArn },
         },

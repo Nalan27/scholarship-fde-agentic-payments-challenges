@@ -169,6 +169,26 @@ describe('InfraStack DynamoDB tables', () => {
     expect(synthesized).toContain(
       'foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0',
     );
+    const modelPolicy = Object.values(
+      template.findResources('AWS::IAM::Policy'),
+    ).find((policy) =>
+      policy.Properties.PolicyName?.includes('ChatAgentRuntimeExecutionRole'),
+    );
+    const modelStatement = modelPolicy?.Properties.PolicyDocument.Statement.find(
+      (statement: Record<string, unknown>) =>
+        JSON.stringify(statement.Condition ?? {}).includes(
+          'InferenceProfileArn',
+        ) &&
+        Array.isArray(statement.Resource),
+    );
+    expect(modelStatement?.Resource).toHaveLength(3);
+    const modelResourceArns = JSON.stringify(modelStatement?.Resource);
+    for (const region of ['us-east-1', 'us-east-2', 'us-west-2']) {
+      expect(modelResourceArns).toContain(
+        `:bedrock:${region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0`,
+      );
+    }
+    expect(modelResourceArns).not.toContain('us-*');
   });
 
   test('retains the chat logs for one week and scopes the role to that log group', () => {

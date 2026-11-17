@@ -215,6 +215,7 @@ export class InfraStack extends cdk.Stack {
       purchaseTool.role,
       usersTable,
       'dynamodb:GetItem',
+      'dynamodb:UpdateItem',
       'dynamodb:TransactWriteItems',
     );
     addTablePermissions(

@@ -304,6 +304,12 @@ export class InfraStack extends cdk.Stack {
     chatLogGroup.grantWrite(chatHandlerRole);
     agentRuntime.grantInvokeRuntime(chatHandlerRole);
     addTablePermissions(chatHandlerRole, conversationsTable, 'dynamodb:PutItem');
+    addTablePermissions(
+      chatHandlerRole,
+      usersTable,
+      'dynamodb:GetItem',
+      'dynamodb:PutItem',
+    );
 
     const chatHandler = new nodejs.NodejsFunction(this, 'ChatHandler', {
       entry: join(apiRoot, 'chat.ts'),
@@ -319,6 +325,7 @@ export class InfraStack extends cdk.Stack {
       environment: {
         AGENT_RUNTIME_ARN: agentRuntime.agentRuntimeArn,
         CONVERSATIONS_TABLE: conversationsTable.tableName,
+        USERS_TABLE: usersTable.tableName,
         FRONTEND_ORIGIN: LOCAL_FRONTEND_ORIGIN,
       },
     });

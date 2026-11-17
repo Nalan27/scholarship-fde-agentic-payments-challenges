@@ -11,11 +11,13 @@ no Bedrock AgentCore.
 - Preços e limites são calculados em centavos no backend.
 - Intenções pertencem ao `sub` do usuário Cognito e ao UUID v4 da conversa,
   expiram em cinco minutos e não reservam estoque.
-- O limite inicial de usuários novos é R$ 1.000,00. A compra reduz o saldo
-  restante no item do usuário.
+- O limite inicial de usuários novos é de R$ 1.000,00 (100000 centavos),
+  mantido como `limite_cents` e `limite_restante_cents` no item do usuário. O
+  perfil é provisionado no primeiro acesso autenticado ao chat (e garantido de
+  forma idempotente pelas tools, se necessário).
 - Compra valida intenção, proprietário, conversa, expiração, método, limite e
-  estoque. As atualizações de intenção, limite, estoque e transação ocorrem
-  em uma única transação condicional DynamoDB.
+  estoque. As atualizações de intenção, limite, estoque e registro de transação
+  ocorrem em uma única transação condicional DynamoDB.
 - As Lambdas das ferramentas não acessam a tabela de conversas. Seus eventos
   retornam pelo AgentCore e são persistidos pela Lambda do chat, que tem
   permissão de escrita restrita à tabela.

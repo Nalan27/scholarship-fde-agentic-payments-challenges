@@ -90,7 +90,7 @@ gerar custos; isso ainda não foi testado nesta conta.
 | Tabela | Chave de partição | Chave de ordenação | Conteúdo |
 |---|---|---|---|
 | `AlanLorenz-Produtos` | `id` | — | Catálogo, preço em centavos, estoque e categoria |
-| `AlanLorenz-Usuarios` | `userId` (`sub` Cognito) | — | Limite total e saldo restante em centavos |
+| `AlanLorenz-Usuarios` | `userId` (`sub` Cognito) | — | Limite total e saldo restante em centavos; perfil criado no primeiro acesso autenticado ao chat com limite inicial de R$ 1.000,00 (100000 centavos) |
 | `AlanLorenz-Conversas` | `userId` (`sub` Cognito) | `messageKey` | Mensagens e eventos de ferramentas, ordenados por conversa/turno |
 | `AlanLorenz-Intencoes` | `intentionId` | — | Usuário, conversa, total calculado, status e expiração |
 | `AlanLorenz-Transacoes` | `intentionId` | — | Transação simulada; uma por intenção |
@@ -113,9 +113,9 @@ limitadas aos ARNs das tabelas indicadas; nenhuma role de aplicação recebe
 
 | Role | Permissões principais |
 |---|---|
-| `AlanLorenz-ChatHandler` | `logs:CreateLogStream`/`logs:PutLogEvents` no próprio log group; `bedrock-agentcore:InvokeAgentRuntime` no runtime; `dynamodb:PutItem` somente em `AlanLorenz-Conversas` |
+| `AlanLorenz-ChatHandler` | `logs:CreateLogStream`/`logs:PutLogEvents` no próprio log group; `bedrock-agentcore:InvokeAgentRuntime` no runtime; `dynamodb:PutItem` em `AlanLorenz-Conversas`; `dynamodb:GetItem`/`dynamodb:PutItem` em `AlanLorenz-Usuarios` para provisionar idempotentemente o perfil no primeiro acesso autenticado (limite inicial de 100000 centavos) |
 | `AlanLorenz-ListCatalog` | `dynamodb:Scan` somente em `AlanLorenz-Produtos`; escrita no próprio log group |
-| `AlanLorenz-RegisterIntention` | `GetItem` em Produtos; `GetItem`/`PutItem` em Usuários; `PutItem` em Intenções; escrita no próprio log group |
+| `AlanLorenz-RegisterIntention` | `GetItem` em Produtos; `GetItem`/`PutItem` em Usuários (garantia idempotente do perfil, se necessário); `PutItem` em Intenções; escrita no próprio log group |
 | `AlanLorenz-RealizarCompra` | `GetItem`/`UpdateItem`/`TransactWriteItems` apenas nas tabelas necessárias (Intenções e Produtos); `GetItem`/`TransactWriteItems` em Usuários; `TransactWriteItems` em Transações; escrita no próprio log group |
 | `ChatAgentRuntimeExecutionRole` | Invoca somente as três Lambdas das ferramentas; acessa o perfil Claude indicado e o foundation model correspondente, condicionado ao perfil de inferência; permissões de execução/telemetria do AgentCore |
 

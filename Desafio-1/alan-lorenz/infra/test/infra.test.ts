@@ -238,6 +238,7 @@ describe('InfraStack DynamoDB tables', () => {
         Variables: {
           AGENT_RUNTIME_ARN: Match.anyValue(),
           CONVERSATIONS_TABLE: Match.anyValue(),
+          USERS_TABLE: Match.anyValue(),
           FRONTEND_ORIGIN: 'http://localhost:3000',
         },
       },
@@ -283,6 +284,22 @@ describe('InfraStack DynamoDB tables', () => {
         },
       },
     ]);
+
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: ['dynamodb:GetItem', 'dynamodb:PutItem'],
+            Resource: {
+              'Fn::GetAtt': [
+                Match.stringLikeRegexp('UsersTable'),
+                'Arn',
+              ],
+            },
+          }),
+        ]),
+      },
+    });
 
     const toolFunctions = Object.values(
       template.findResources('AWS::Lambda::Function'),

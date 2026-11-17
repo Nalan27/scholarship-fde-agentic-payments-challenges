@@ -25,11 +25,13 @@ autorizam o deploy: não publique recursos até receber autorização expressa.
 - O frontend local lê `UserPoolId`, `UserPoolClientId` e `ChatApiEndpoint` de
   `../frontend/.env.local`; consulte o
   [`README do frontend`](../frontend/README.md) para configurá-lo.
-- A Lambda de chat obtém o `sub` exclusivamente do authorizer Cognito, invoca
-  o AgentCore com um identificador de sessão derivado do usuário e da conversa
-  e converte os eventos SSE do runtime em NDJSON para o cliente. Ela grava a
-  nova mensagem do usuário antes da invocação e, ao final, persiste a resposta
-  do agente e os eventos das ferramentas.
+- A Lambda de chat obtém o `sub` exclusivamente do authorizer Cognito, garante
+  de forma idempotente o perfil do usuário em `AlanLorenz-Usuarios` no primeiro
+  acesso autenticado (limite inicial de R$ 1.000,00 / 100000 centavos), invoca o
+  AgentCore com um identificador de sessão derivado do usuário e da conversa e
+  converte os eventos SSE do runtime em NDJSON para o cliente. Ela grava a nova
+  mensagem do usuário antes da invocação e, ao final, persiste a resposta do
+  agente e os eventos das ferramentas.
 - O runtime é um CodeZip Python 3.13, gerenciado pelo CDK, com Strands e o
   modelo `us.anthropic.claude-haiku-4-5-20251001-v1:0`.
 - O agente usa o prompt de negócio original, mantém o histórico enviado pelo
@@ -46,9 +48,11 @@ autorizam o deploy: não publique recursos até receber autorização expressa.
   configurados e mantém somente os grants de logs/identidade necessários à
   execução.
 - Somente a role da Lambda do chat tem `dynamodb:PutItem` na tabela de
-  conversas. As Lambdas das ferramentas não recebem o nome nem permissão para
-  acessar essa tabela; os eventos de ferramenta retornam pelo AgentCore e são
-  gravados pelo handler do chat.
+  conversas; ela também possui `dynamodb:GetItem`/`dynamodb:PutItem` em
+  `AlanLorenz-Usuarios` para provisionar o perfil no primeiro acesso
+  autenticado. As Lambdas das ferramentas não recebem o nome nem permissão para
+  acessar a tabela de conversas; os eventos de ferramenta retornam pelo
+  AgentCore e são gravados pelo handler do chat.
 - Os grants globais `Resource: "*"` de X-Ray/métricas do construct AgentCore
   foram removidos (tracing e métricas customizadas não são usados). O teste
   CDK verifica que nenhuma policy tenha `Resource: "*"`.
@@ -76,9 +80,11 @@ nem índices secundários: intenções expiradas precisam continuar disponíveis
 para que a ferramenta possa responder `INTENCAO_EXPIRADA`, e os índices
 adicionariam custo sem serem necessários para os acessos atuais.
 
-O perfil de um usuário Cognito é criado na primeira intenção, com o limite
-inicial legado de R$ 1.000,00 (`100000` centavos). O catálogo inicial é o mesmo
-do chatbot da Fase 1; não são migrados usuários, conversas ou compras do SQLite.
+O perfil de um usuário Cognito é criado no primeiro acesso autenticado ao chat,
+com o limite inicial de R$ 1.000,00 (`100000` centavos). As ferramentas também
+garantem a criação idempotente do perfil se necessário. O catálogo inicial é o
+mesmo do chatbot da Fase 1; não são migrados usuários, conversas ou compras do
+SQLite.
 
 ## Contrato de `POST /chat`
 

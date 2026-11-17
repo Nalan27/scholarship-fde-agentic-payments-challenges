@@ -11,6 +11,7 @@ import {
   saveConversationRecord,
   type ToolEventRecord,
 } from './conversation-store.ts';
+import { ensureChatUser } from './user-store.ts';
 
 const UUID_V4 =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -287,6 +288,7 @@ export const handler: StreamifyHandler<ChatApiEvent> = awslambda.streamifyRespon
     const { userId, conversaId, messages } = parsed.request;
     const { latestUserMessage, turnNumber } = currentTurn(messages);
     try {
+      await ensureChatUser(userId);
       await saveConversationRecord(
         createUserMessageRecord(
           userId,
@@ -296,7 +298,7 @@ export const handler: StreamifyHandler<ChatApiEvent> = awslambda.streamifyRespon
         ),
       );
     } catch (error) {
-      console.error('Failed to persist the user chat message:', error);
+      console.error('Failed to prepare the chat request:', error);
       writeJsonError(
         responseStream,
         event,

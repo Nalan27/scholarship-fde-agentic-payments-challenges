@@ -320,26 +320,22 @@ describe('InfraStack DynamoDB tables', () => {
   });
 
   test('grants DynamoDB tool access through resource-scoped policies', () => {
-    template.hasResourceProperties('AWS::IAM::Policy', {
-      PolicyDocument: {
-        Statement: Match.arrayWith([
-          Match.objectLike({
-            Action: 'dynamodb:TransactWriteItems',
-            Resource: Match.anyValue(),
-          }),
-        ]),
-      },
-    });
-    template.hasResourceProperties('AWS::IAM::Policy', {
-      PolicyDocument: {
-        Statement: Match.arrayWith([
-          Match.objectLike({
-            Action: 'dynamodb:Scan',
-            Resource: Match.anyValue(),
-          }),
-        ]),
-      },
-    });
+    const policies = Object.values(
+      template.findResources('AWS::IAM::Policy'),
+    );
+    const statements = policies.flatMap(
+      (policy) =>
+        policy.Properties.PolicyDocument.Statement as Record<string, unknown>[],
+    );
+    const hasAction = (action: string) =>
+      statements.some((statement) => {
+        const value = statement.Action;
+        const actions = Array.isArray(value) ? value : [value];
+        return actions.includes(action);
+      });
+
+    expect(hasAction('dynamodb:TransactWriteItems')).toBe(true);
+    expect(hasAction('dynamodb:Scan')).toBe(true);
   });
 
   test('does not synthesize IAM statements with an unscoped wildcard resource', () => {

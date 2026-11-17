@@ -1,20 +1,20 @@
 ﻿# Desafio 1 — Alan Lorenz
 
-## Status da entrega
+## Visão geral
 
-Infraestrutura AWS (backend, autenticação e dados) implantada em `us-east-1`
-(stack `AlanLorenzInfraStack`) e frontend Next.js executado localmente em
-`http://localhost:3000`. Login Cognito, endpoint de chat protegido com streaming,
-agente Strands no Bedrock AgentCore Runtime (Claude Haiku), as três ferramentas
-em Lambda e fluxo de compra (catálogo, intenção e pagamento simulado) foram
-validados com recursos reais. Evidências anonimizadas estão em
-[`evidências/`](./evidências/).
+A entrega consiste em uma solução de atendimento via chat implantada na AWS em
+`us-east-1` (stack `AlanLorenzInfraStack`), com frontend Next.js executado
+localmente em `http://localhost:3000`. A solução integra autenticação com Amazon
+Cognito, endpoint de chat protegido no API Gateway, agente Strands executado no
+Bedrock AgentCore Runtime com o modelo Claude Haiku do Amazon Bedrock e três
+ferramentas de negócio executadas em AWS Lambda, com persistência e regras de
+compra em Amazon DynamoDB. O fluxo foi validado com recursos reais e as
+evidências anonimizadas estão registradas em [`evidências/`](./evidências/).
 
-**Frontend local (adaptação):** a stack não provisiona S3/CloudFront; o frontend
-é configurado por `.env.local` com os outputs do deploy e executado localmente
-conforme [`frontend/README.md`](./frontend/README.md). Manter a aplicação
-funcional e o usuário do instrutor disponível até a correção, e remover os
-recursos após a avaliação (ver [Remoção](#remoção-da-infraestrutura)).
+Como adaptação documentada, a hospedagem do frontend em S3/CloudFront não foi
+provisionada: o frontend é executado localmente e consome os recursos AWS
+implantados. A aplicação e o acesso do usuário instrutor permanecem disponíveis
+até a correção, e os recursos são removidos após a avaliação.
 
 ## Arquitetura
 
@@ -32,159 +32,139 @@ flowchart TD
   Tools --> Transactions[(DynamoDB: transações)]
 ```
 
-O endpoint de chat exige autenticação Cognito. O `userId` é sempre o `sub`
-validado no token (nunca valor enviado pelo cliente/modelo). A API transmite
-respostas em streaming.
+O endpoint de chat exige token JWT do Cognito. A identidade do usuário é
+obtida exclusivamente do claim `sub` validado pelo autorizador (nunca de dados
+enviados pelo cliente ou pelo modelo). A resposta do chat é transmitida em
+streaming. O CORS da API é restrito à origem local `http://localhost:3000`.
 
 ## Modelo
 
-`us.anthropic.claude-haiku-4-5-20251001-v1:0` (perfil de inferência do Amazon
-Bedrock, `us-east-1`). A invocação real do modelo pode gerar custos e depende
-de acesso habilitado na conta.
+O agente utiliza o perfil de inferência `us.anthropic.claude-haiku-4-5-20251001-v1:0`
+do Amazon Bedrock na região `us-east-1`. A invocação do modelo depende de acesso
+habilitado na conta e pode gerar custos.
 
-## Modelagem DynamoDB
+## Modelagem do DynamoDB
 
 | Tabela | Chave de partição | Chave de ordenação | Conteúdo |
 |---|---|---|---|
 | `AlanLorenz-Produtos` | `id` | — | Catálogo, preço em centavos, estoque e categoria |
-| `AlanLorenz-Usuarios` | `userId` (`sub`) | — | Limite total e saldo restante em centavos; perfil criado/garantido no primeiro acesso autenticado ao chat (limite inicial R$ 1.000,00 / 100000 centavos) |
-| `AlanLorenz-Conversas` | `userId` (`sub`) | `messageKey` | Mensagens e eventos de ferramentas por conversa/turno (chave determinística para idempotência) |
-| `AlanLorenz-Intencoes` | `intentionId` | — | Usuário, conversa, total calculado, status e expiração (5 minutos) |
-| `AlanLorenz-Transacoes` | `intentionId` | — | Transação simulada; uma por intenção (evita duplicidade) |
+| `AlanLorenz-Usuarios` | `userId` (`sub`) | — | Limite total e saldo restante em centavos; perfil criado/garantido de forma idempotente no primeiro acesso autenticado ao chat (limite inicial de R$ 1.000,00 / 100000 centavos) |
+| `AlanLorenz-Conversas` | `userId` (`sub`) | `messageKey` | Mensagens e eventos de ferramentas por conversa/turno, com chave determinística para idempotência em retentativas |
+| `AlanLorenz-Intencoes` | `intentionId` | — | Usuário, conversa, produto, quantidade, total calculado, status e expiração (5 minutos) |
+| `AlanLorenz-Transacoes` | `intentionId` | — | Registro da transação simulada; uma transação por intenção, evitando duplicidade |
 
-Cobrança sob demanda com limite de throughput configurado (5 RCU/WCU por tabela;
-não é teto de gasto mensal). Sem TTL/índices secundários. A compra atualiza
-intenção, limite, estoque e transação em escrita condicional/transacional.
+As tabelas utilizam cobrança sob demanda com limite de throughput configurado
+(5 unidades de leitura e 5 de escrita por tabela), o que não constitui teto de
+gasto mensal. Não há TTL nem índices secundários. A conclusão da compra aplica
+atualizações condicionais/transacionais envolvendo intenção, limite do usuário,
+estoque e transação.
 
-**Limitação conhecida:** mensagens são persistidas e o histórico do turno é
-enviado ao agente, mas não há endpoint para restaurar conversas salvas após
-recarregar a página.
+**Limitação conhecida:** as mensagens são persistidas e o histórico do turno é
+enviado ao agente, porém não há endpoint para restaurar conversas salvas após
+o recarregamento da página.
+
+## Ferramentas e regras de negócio
+
+As três ferramentas — `listar_catalogo`, `registrar_intencao` e
+`realizar_compra` — são executadas em funções Lambda dedicadas e invocadas pelo
+agente no runtime. O contexto autenticado (`userId`/`sub` e identificador da
+conversa) é fornecido pela camada de integração, separado dos argumentos do
+modelo. A intenção de compra tem validade de 5 minutos e não reserva estoque;
+o valor é calculado no backend. A compra valida intenção, propriedade, conversa,
+expiração, método de pagamento, saldo/limite e estoque, registrando o resultado
+de forma consistente (aprovação, recusa por limite excedido, intenção inválida
+ou expirada, entre outros casos).
 
 ## Revisão de permissões IAM
 
-Roles de aplicação separadas por função, sem `AdministratorAccess`. Permissões
-DynamoDB/serviços limitadas aos ARNs/recursos necessários.
+As funções de aplicação possuem papéis separados e permissões limitadas aos
+recursos necessários, sem uso de `AdministratorAccess`.
 
-| Role | Permissões principais |
+| Papel/Função | Permissões principais |
 |---|---|
-| `AlanLorenz-ChatHandler` | Logs no próprio log group; `bedrock-agentcore:InvokeAgentRuntime` no runtime; `dynamodb:PutItem` em `AlanLorenz-Conversas`; `dynamodb:GetItem`/`PutItem` em `AlanLorenz-Usuarios` (provisionamento idempotente do perfil) |
-| `AlanLorenz-ListCatalog` | `dynamodb:Scan` em `AlanLorenz-Produtos`; logs no próprio log group |
-| `AlanLorenz-RegisterIntention` | `GetItem` em Produtos; `GetItem`/`PutItem` em Usuários; `PutItem` em Intenções; logs no próprio log group |
-| `AlanLorenz-RealizarCompra` | `GetItem`/`UpdateItem`/`TransactWriteItems` em Intenções e Produtos; `GetItem`/`UpdateItem`/`TransactWriteItems` em Usuários; `PutItem`/`TransactWriteItems` em Transações; logs no próprio log group |
-| `ChatAgentRuntimeExecutionRole` | Invoca somente as 3 Lambdas de tools; acesso ao perfil de inferência e foundation models correspondentes (condicionado ao perfil); permissões operacionais/telemetria do AgentCore |
+| `AlanLorenz-ChatHandler` | Escrita de logs no próprio log group; `bedrock-agentcore:InvokeAgentRuntime` no runtime; `dynamodb:PutItem` em `AlanLorenz-Conversas`; `dynamodb:GetItem` e `dynamodb:PutItem` em `AlanLorenz-Usuarios` para provisionamento idempotente do perfil no primeiro acesso autenticado |
+| `AlanLorenz-ListCatalog` | `dynamodb:Scan` em `AlanLorenz-Produtos`; escrita de logs no próprio log group |
+| `AlanLorenz-RegisterIntention` | `dynamodb:GetItem` em Produtos; `dynamodb:GetItem` e `dynamodb:PutItem` em Usuários; `dynamodb:PutItem` em Intenções; escrita de logs no próprio log group |
+| `AlanLorenz-RealizarCompra` | `dynamodb:GetItem`, `dynamodb:UpdateItem` e `dynamodb:TransactWriteItems` em Intenções e Produtos; `dynamodb:GetItem`, `dynamodb:UpdateItem` e `dynamodb:TransactWriteItems` em Usuários; `dynamodb:PutItem` e `dynamodb:TransactWriteItems` em Transações; escrita de logs no próprio log group |
+| `ChatAgentRuntimeExecutionRole` | Invocação apenas das três Lambdas de ferramentas; acesso ao perfil de inferência e aos foundation models de destino correspondentes (condicionado ao perfil); permissões operacionais/telemetria necessárias ao AgentCore |
 
-Grants globais `Resource: "*"` de X-Ray/métricas do AgentCore foram removidos
-(há teste CDK que falha se reaparecerem). Permanecem padrões `*` delimitados em
-permissões operacionais geradas pelo AgentCore (logs/identidade/invocação,
-restritos a região/conta), não grants globais de dados. Acesso ao Haiku restrito
-ao perfil e destinos regionais do perfil US. Role de deploy é separada das roles
-de runtime; não armazenar credenciais no repositório.
+Permissões globais `Resource: "*"` associadas a X-Ray/métricas do construct do
+AgentCore foram removidas, e a validação da infraestrutura inclui verificação
+para impedir seu reaparecimento. Permanecem padrões curinga delimitados em
+permissões operacionais geradas pelo AgentCore (logs, identidade e invocação do
+runtime, restritos a região/conta), sem concessão global de acesso a dados. O
+papel utilizado para implantação é distinto dos papéis de execução, e credenciais
+não são armazenadas no repositório.
 
-## Deploy e provisionamento
+## Infraestrutura, implantação e provisionamento
 
-Pré-requisitos: Node.js/npm, Python 3.13, `uv`, AWS CLI configurada, acesso ao
-modelo Bedrock em `us-east-1` e autorização para criar recursos/custos.
+A infraestrutura é definida com AWS CDK em TypeScript na pasta [`infra/`](./infra/).
+A validação local abrange testes e síntese da stack, testes do agente e
+verificações do frontend e das ferramentas. A implantação publica a stack
+`AlanLorenzInfraStack` em `us-east-1` (com bootstrap do CDK quando necessário),
+criando backend, autenticação, API, runtime do agente, Lambdas e tabelas
+DynamoDB, sem provisionar hospedagem para o frontend.
 
-### Validar e implantar (PowerShell, pasta `infra/`)
+Os outputs relevantes do deploy incluem `UserPoolId`, `UserPoolClientId`,
+`ChatApiEndpoint` e `AgentRuntimeArn`. Após a implantação, o catálogo inicial
+é semeado na tabela `AlanLorenz-Produtos` (pasta [`tools/`](./tools/), sem
+sobrescrever itens existentes) e os usuários da aplicação são criados por
+convite administrativo no Cognito (cadastro público desabilitado). Usuários de
+teste e o usuário do instrutor são provisionados dessa forma, sendo que o
+acesso do instrutor permanece disponível até a correção.
 
-```powershell
-npm ci
-npm run test -- --runInBand
-npm run test:agent
-npm run synth
-# após revisar o template e com autorização:
-npm run deploy
-```
+## Execução do frontend local
 
-`npm run deploy` faz bootstrap (se necessário) e publica `AlanLorenzInfraStack`
-(backend, Cognito, API, AgentCore, Lambdas, DynamoDB) — não publica frontend.
-Anote outputs: `UserPoolId`, `UserPoolClientId`, `ChatApiEndpoint`, `AgentRuntimeArn`.
+O frontend (Next.js) está em [`frontend/`](./frontend/) e é executado localmente,
+consumindo os recursos implantados na AWS.
 
-Validações adicionais: `frontend/` → `npm ci && npm run check`; `tools/` →
-`npm ci && npm run check`.
-
-### Seed do catálogo (após deploy autorizado, pasta `tools/`)
-
-```powershell
-$env:AWS_PROFILE = "desafio-1"
-$env:PRODUCTS_TABLE = "AlanLorenz-Produtos"
-npm run seed:catalog
-```
-
-### Criar usuários por convite (Cognito, sem auto cadastro)
-
-Usar o `UserPoolId` do output. O usuário recebe senha temporária e define nova
-senha no primeiro login.
-
-```powershell
-$env:AWS_PROFILE = "desafio-1"
-$poolId = "<UserPoolId>"
-$email  = "<email-do-usuario-ou-instrutor>"
-
-aws cognito-idp admin-create-user `
-  --user-pool-id $poolId `
-  --username $email `
-  --user-attributes Name=email,Value=$email Name=email_verified,Value=true `
-  --desired-delivery-mediums EMAIL `
-  --region us-east-1
-```
-
-Se o e-mail não chegar, é possível suprimir envio e definir senha temporária
-(não compartilhar valores): `--message-action SUPPRESS --temporary-password "<SenhaTemporaria>"`.
-Verificar status: `aws cognito-idp admin-get-user --user-pool-id $poolId --username $email --region us-east-1`.
-
-**Usuário do instrutor:** criar por convite com o e-mail informado pela
-coordenação, manter disponível até a correção e garantir que a aplicação/stack
-permaneça acessível para avaliação (o frontend é local; alinhar com a
-coordenação o formato de acesso/demonstração, se necessário).
-
-### Frontend local
-
-Em `frontend/`, criar `.env.local` com:
-
-```env
-NEXT_PUBLIC_USER_POOL_ID=<UserPoolId>
-NEXT_PUBLIC_USER_POOL_CLIENT_ID=<UserPoolClientId>
-NEXT_PUBLIC_CHAT_API_URL=<ChatApiEndpoint>
-```
-
-Executar `npm ci && npm run dev` e acessar `http://localhost:3000`. Após
-alterar `.env.local`, reiniciar o servidor.
+- **Configuração:** em `frontend/.env.local` são definidos `NEXT_PUBLIC_USER_POOL_ID`,
+  `NEXT_PUBLIC_USER_POOL_CLIENT_ID` e `NEXT_PUBLIC_CHAT_API_URL`, preenchidos com
+  os valores dos outputs do deploy (`UserPoolId`, `UserPoolClientId` e
+  `ChatApiEndpoint`). O arquivo de exemplo `.env.example` serve de referência.
+- **Dependências e execução:** na pasta `frontend/`, as dependências são
+  instaladas com `npm ci` (ou `npm install`) e o servidor de desenvolvimento é
+  iniciado com `npm run dev`.
+- **Acesso:** a aplicação fica disponível em `http://localhost:3000`. O login é
+  realizado com usuário criado por convite no Cognito; no primeiro acesso, a
+  senha temporária é substituída conforme o fluxo do Cognito. Após o login, o
+  perfil do usuário é provisionado/garantido em `AlanLorenz-Usuarios` com o
+  limite inicial configurado.
+- **Observações:** alterações em `.env.local` exigem reinício do servidor de
+  desenvolvimento. O CORS do endpoint de chat permite a origem
+  `http://localhost:3000`.
 
 ## Evidências de validação
 
-Capturas/registros anonimizados (sem JWT, senhas ou dados pessoais):
+Os registros a seguir são capturas anonimizadas (sem tokens JWT, senhas ou
+dados pessoais sensíveis), armazenadas em [`evidências/`](./evidências/):
 
 | Cenário exigido | Estado | Evidência |
 |---|---|---|
-| Login Cognito | Validado | [login-cognito.png](./evidências/login-cognito.png) |
-| `401` sem token válido | Validado | [401-sem-token.png](./evidências/401-sem-token.png) |
+| Login com Cognito | Validado | [login-cognito.png](./evidências/login-cognito.png) |
+| Requisição sem token válido (401) | Validado | [401-sem-token.png](./evidências/401-sem-token.png) |
 | Compra simulada com cartão | Validado | [realizar-compra-cartao.png](./evidências/realizar-compra-cartao.png) |
 | Compra simulada com Pix | Validado | [realizar-compra-pix.png](./evidências/realizar-compra-pix.png) |
 | Compra recusada por limite excedido | Validado | [limite-excedido.png](./evidências/limite-excedido.png) |
 | `intencao_id` inválido / não autorizado | Validado | [intencao-invalida.png](./evidências/intencao-invalida.png) |
 
-Complementares (fluxo das tools): [listar-catalogo.png](./evidências/listar-catalogo.png),
-[registrar-intencao.png](./evidências/registrar-intencao.png).
+Evidências complementares do fluxo de ferramentas: [listar-catalogo.png](./evidências/listar-catalogo.png)
+e [registrar-intencao.png](./evidências/registrar-intencao.png).
 
 ## Remoção da infraestrutura
 
-Após a correção/avaliação e com autorização:
+Após a correção/avaliação, e com a devida autorização, a stack é removida a
+partir da pasta `infra/` com `npm run cdk -- destroy AlanLorenzInfraStack`. A
+remoção elimina os recursos da stack (tabelas DynamoDB, usuários do Cognito,
+API, Lambdas e runtime do AgentCore), sendo recomendada a preservação prévia de
+dados necessários. O bootstrap CDK compartilhado da conta/região não é removido
+por esse comando.
 
-```powershell
-cd infra
-npm run cdk -- destroy AlanLorenzInfraStack
-```
+## Estrutura de pastas
 
-Apaga tabelas/DynamoDB, usuários do Cognito, API, Lambdas e AgentCore da stack
-(fazer backup se necessário). O bootstrap CDK compartilhado da conta/região não
-é removido por esse comando; confirmar no console que não restaram recursos.
-
-## Pastas
-
-- [`frontend/`](./frontend/) — interface local e autenticação Cognito.
-- [`api/`](./api/) — Lambda de chat, provisionamento idempotente do usuário e persistência de conversas.
-- [`agent/`](./agent/) — agente Strands executado no AgentCore.
-- [`tools/`](./tools/) — ferramentas de catálogo, intenção e compra.
-- [`infra/`](./infra/) — stack AWS CDK e validações de infraestrutura.
+- [`frontend/`](./frontend/) — interface web local e integração com Cognito/chat.
+- [`api/`](./api/) — Lambda de chat, provisionamento idempotente do perfil de usuário e persistência de conversas.
+- [`agent/`](./agent/) — agente Strands executado no AgentCore Runtime.
+- [`tools/`](./tools/) — ferramentas de catálogo, intenção e compra, além do seed do catálogo.
+- [`infra/`](./infra/) — definição da stack AWS CDK e validações de infraestrutura.
 - [`evidências/`](./evidências/) — registros anonimizados dos cenários validados.
